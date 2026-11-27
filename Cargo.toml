@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/schema", "crates/webhook"]
+members = ["crates/core", "crates/schema", "crates/webhook", "spike"]
 
 [workspace.package]
 version = "0.1.0"

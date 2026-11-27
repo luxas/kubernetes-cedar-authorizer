@@ -1,0 +1,13 @@
+[package]
+name = "spike"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Stage 1 TPE spike (PLAN.md stage 1). Deliberately NOT the Aeneas-friendly crates/core:
+# it may use serde_json, sha2 and the public cedar-policy API (#2581) directly.
+[dependencies]
+cedar-policy = { workspace = true }
+serde_json = "1"
+sha2 = "0.10"
