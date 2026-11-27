@@ -1,0 +1,21 @@
+[package]
+name = "kca-schema"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cedar-policy-core = { git = "https://github.com/cedar-policy/cedar.git", rev = "99a88d53fd587299d41e2d0c8b9da88632490711" }
+k8s-openapi = { version = "0.25.0", features = ["v1_33"] }
+kube = { version = "1.1.0", features = ["client", "runtime"] }
+serde = "1.0.219"
+serde_json = "1.0.140"
+smol_str = "0.3.2"
+thiserror = "2.0.12"
+itertools = "0.14.0"
+nonempty = { version = "0.12.0", features = ["serialize"] }
+regex = "1.11.1"
+http = "1.3.1"
+tokio = { version = "1.46.1", features = ["full", "macros"] }
+anyhow = "1.0.98"
+tracing = "0.1.41"

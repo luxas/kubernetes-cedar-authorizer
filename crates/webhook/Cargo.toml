@@ -1,0 +1,8 @@
+[package]
+name = "kca-webhook"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kca-core = { path = "../core" }
