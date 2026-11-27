@@ -385,7 +385,7 @@ theorem evalL_two (rt : String → CAD M → Dec) (t : M → Dec) (n1 n2 : Strin
 theorem chain_refine_shape {W : World M} (A B : Authorizer W) (hn : namesOk A B = true)
     (a : W.Attrs) (d : W.Data) (x : CAD M) (hx : isUn x = false)
     (hr : Refines (W.truth d) x ((chain2 A B).caa a)) :
-    (∃ c1, x = .ucons A.name c1 .unil ∧ Steps (W.truth d) (A.caa a) c1) ∨
+    (∃ c1, x = .ucons A.name c1 .unil ∧ Steps (W.truth d) (A.caa a) c1 ∧ cua c1 = true) ∨
     (∃ c1 c2, x = .ucons A.name c1 (.ucons B.name c2 .unil) ∧ Steps (W.truth d) (A.caa a) c1 ∧
         Steps (W.truth d) (B.caa a) c2) := by
   have hcc : (chain2 A B).caa a =
@@ -399,8 +399,8 @@ theorem chain_refine_shape {W : World M} (A B : Authorizer W) (hn : namesOk A B 
     rcases build_cases (CAD.ucons A.name (A.caa a) CAD.unil) with hb | ⟨dd, hb⟩
     · rw [hb] at hr
       rcases steps_ucons hr A.name _ _ rfl rfl with ⟨c1, r', hz, h1, h2, h3 | ⟨h3, h4⟩⟩ | ⟨dd, hz⟩
-      · have := steps_unil h3 h2; subst this; subst hz; exact Or.inl ⟨c1, rfl, h1⟩
-      · subst h3; subst hz; exact Or.inl ⟨c1, rfl, h1⟩
+      · have := steps_unil h3 h2; subst this; subst hz; exact Or.inl ⟨c1, rfl, h1, steps_cua h1 hcu⟩
+      · subst h3; subst hz; exact Or.inl ⟨c1, rfl, h1, h4⟩
       · subst hz; simp [isUn] at hx
     · rw [hb] at hr; have := steps_un hr; subst this; simp [isUn] at hx
   · rw [if_neg hcu] at hr
@@ -412,7 +412,7 @@ theorem chain_refine_shape {W : World M} (A B : Authorizer W) (hn : namesOk A B 
           exact Or.inr ⟨c1, c2, rfl, h1, h5⟩
         · subst h7; subst hz2; subst hz; exact Or.inr ⟨c1, c2, rfl, h1, h5⟩
         · rw [hz2] at h2; simp [isList] at h2
-      · subst h3; subst hz; exact Or.inl ⟨c1, rfl, h1⟩
+      · subst h3; subst hz; exact Or.inl ⟨c1, rfl, h1, h4⟩
       · subst hz; simp [isUn] at hx
     · rw [hb] at hr; have := steps_un hr; subst this; simp [isUn] at hx
 
@@ -437,7 +437,7 @@ theorem chain_L4 {W : World M} {DA DB : W.Attrs → W.Data → Prop} (A B : Auth
   have h3 := chain_L3 A B fA fB hn a d hA hB (hLA.L3 a d hc hDA) (hLB.L3 a d hc hDB)
   have hev : ∀ n c r, (chain2 A B).eval (.ucons n c r) d = evalL (route A B d) (.ucons n c r) :=
     fun _ _ _ => rfl
-  rcases chain_refine_shape A B hn a d x hx hr with ⟨c1, hz, h1⟩ | ⟨c1, c2, hz, h1, h2⟩
+  rcases chain_refine_shape A B hn a d x hx hr with ⟨c1, hz, h1, _⟩ | ⟨c1, c2, hz, h1, h2⟩
   · subst hz
     rw [hev, evalL_one _ (W.truth d) _ _ ?_, hsz, h3]
     have e1 := leaf_eq A hLA a d hc hDA (route A B d) A.name hrtA c1 h1
@@ -448,5 +448,238 @@ theorem chain_L4 {W : World M} {DA DB : W.Attrs → W.Data → Prop} (A B : Auth
       rw [e1, hLA.L3 a d hc hDA, (refines_sem h1 (good_wf hA)).2]
     · have e2 := leaf_eq B hLB a d hc hDB (route A B d) B.name hrtB c2 h2
       rw [e2, hLB.L3 a d hc hDB, (refines_sem h2 (good_wf hB)).2]
+
+/-! ### Soundness of the chain -/
+
+/-- Decision-level core of A-9: if each member is Allow-sound and Deny-faithful (`r` is what
+the member returns, `f` the reference), the first-non-NoOpinion fold is Allow-sound. -/
+theorem chain_sound_of_deny_faithful (rA rB fA fB : Dec)
+    (sA : rA = .allow → fA = .allow) (sB : rB = .allow → fB = .allow)
+    (dA : fA = .deny → rA = .deny)
+    (h : firstNo rA rB = .allow) : firstNo fA fB = .allow := by
+  revert sA sB dA h
+  cases rA <;> cases rB <;> cases fA <;> cases fB <;> decide
+
+/-- Deny direction of the same fold. -/
+theorem chain_deny_of_deny_faithful (rA rB fA fB : Dec)
+    (sA : rA = .allow → fA = .allow)
+    (dA : fA = .deny → rA = .deny) (dB : fB = .deny → rB = .deny)
+    (h : firstNo fA fB = .deny) : firstNo rA rB = .deny := by
+  revert sA dA dB h
+  cases rA <;> cases rB <;> cases fA <;> cases fB <;> decide
+
+/-- Negative: a member that fails closed to `NoOpinion` where `full = Deny` (never Allow
+wrongly) makes the chain serve what the reference denies (review C4). -/
+theorem fail_closed_to_noOp_is_fail_open :
+    ∃ rA rB fA fB : Dec,
+      (rA = .allow → fA = .allow) ∧ (rB = .allow → fB = .allow) ∧
+      firstNo rA rB = .allow ∧ firstNo fA fB ≠ .allow :=
+  ⟨.noOp, .allow, .deny, .allow, by decide, by decide, by decide, by decide⟩
+
+/-- Order-level: the one-sided fold-down clause S2 is preserved by `firstNo`. -/
+theorem firstNo_S2 (rA rB fA fB : Dec)
+    (a1 : rA.rank ≤ fA.rank) (a2 : fA = .deny → rA = .deny)
+    (b1 : rB.rank ≤ fB.rank) (b2 : fB = .deny → rB = .deny) :
+    (firstNo rA rB).rank ≤ (firstNo fA fB).rank ∧ (firstNo fA fB = .deny → firstNo rA rB = .deny) := by
+  revert a1 a2 b1 b2
+  cases rA <;> cases rB <;> cases fA <;> cases fB <;> decide
+
+theorem chain_sem {W : World M} (A B : Authorizer W) (hn : namesOk A B = true) (a : W.Attrs)
+    (t : M → Dec) (hA : good (A.caa a) = true) (hB : good (B.caa a) = true) :
+    sem t ((chain2 A B).caa a) = firstNo (sem t (A.caa a)) (sem t (B.caa a)) := by
+  have wA : wf (A.caa a) = true := good_wf hA
+  have wB : wf (B.caa a) = true := good_wf hB
+  have hcc : (chain2 A B).caa a =
+      (if cua (A.caa a) = true then build true (CAD.ucons A.name (A.caa a) CAD.unil)
+       else build true (CAD.ucons A.name (A.caa a) (CAD.ucons B.name (B.caa a) CAD.unil))) := by
+    simp [chain2, hn]
+  rw [hcc]
+  by_cases hcu : cua (A.caa a) = true
+  · rw [if_pos hcu, sem_build _ _ (by simp [wf, isList, wA])]
+    have := cua_sem t _ wA hcu
+    simp [sem, firstNo, this]
+  · rw [if_neg hcu, sem_build _ _ (by simp [wf, isList, wA, wB])]
+    by_cases h : sem t (A.caa a) = .noOp <;> by_cases h' : sem t (B.caa a) = .noOp <;>
+      simp [sem, firstNo, h, h']
+
+theorem leaf_un (rt : String → CAD M → Dec) (n : String) (d : Dec) : leaf rt n (.un d) = d := rfl
+
+theorem leaf_cond (rt : String → CAD M → Dec) (n : String) (c : CAD M) (hu : isUn c = false) :
+    leaf rt n c = if (pd c).has (rt n c) = true then rt n c else FD c := by
+  cases c <;> simp_all [leaf, isUn]
+
+/-- Leaf facts for a member that is `Sound`: its walk value on a refinement `c`. -/
+theorem leaf_allow {W : World M} {full : W.Attrs → W.Data → Dec} (Q : Authorizer W)
+    (hS : Sound full Q) (a : W.Attrs) (d : W.Data) (hc : W.Consistent a d)
+    (rt : String → CAD M → Dec) (n : String) (hrt : ∀ c, rt n c = Q.eval c d)
+    (c : CAD M) (hr : Steps (W.truth d) (Q.caa a) c) :
+    leaf rt n c = .allow → full a d = .allow := by
+  obtain ⟨hwc, hsc⟩ := refines_sem hr (good_wf (hS.S1 a))
+  intro h
+  cases hu : isUn c with
+  | true =>
+    cases c with
+    | un dd =>
+      simp only [leaf_un] at h; simp only [sem] at hsc
+      exact hS.S3 a d hc (by rw [← hsc]; exact h)
+    | cond _ _ _ | unil | ucons _ _ _ => simp [isUn] at hu
+  | false =>
+    rw [leaf_cond rt n c hu, hrt] at h
+    by_cases hp : (pd c).has (Q.eval c d) = true
+    · rw [if_pos hp] at h
+      exact hS.S3e a d hc c hu hr h
+    · rw [if_neg hp] at h
+      exact absurd h (FD_ne_allow c)
+
+theorem leaf_deny {W : World M} {full : W.Attrs → W.Data → Dec} (Q : Authorizer W)
+    (hS : Sound full Q) (a : W.Attrs) (d : W.Data) (hc : W.Consistent a d)
+    (rt : String → CAD M → Dec) (n : String) (hrt : ∀ c, rt n c = Q.eval c d)
+    (c : CAD M) (hr : Steps (W.truth d) (Q.caa a) c) :
+    full a d = .deny → leaf rt n c = .deny := by
+  obtain ⟨hwc, hsc⟩ := refines_sem hr (good_wf (hS.S1 a))
+  intro hf
+  have h4 := hS.S4 a d hc hf
+  cases hu : isUn c with
+  | true =>
+    cases c with
+    | un dd => simp only [sem] at hsc; rw [leaf_un, hsc]; exact h4
+    | cond _ _ _ | unil | ucons _ _ _ => simp [isUn] at hu
+  | false =>
+    have hm := sem_mem (W.truth d) c hwc
+    rw [hsc, h4] at hm
+    have h1 := hS.S4e a d hc c hu hr hf
+    rw [leaf_cond rt n c hu, hrt, h1]
+    simp [hm]
+
+/-- With a head that still contains an unconditional Allow/Deny, the walk value is `Deny` as
+soon as the reference value is Deny and the routed evaluation is not Allow. -/
+theorem leaf_deny_of_cua (rt : String → CAD M → Dec) (n : String) (t : M → Dec)
+    (c : CAD M) (hw : wf c = true) (hcu : cua c = true) (hsd : sem t c = .deny)
+    (hna : isUn c = false → rt n c ≠ .allow) : leaf rt n c = .deny := by
+  have hm := sem_mem t c hw
+  rw [hsd] at hm
+  cases hu : isUn c with
+  | true =>
+    cases c with
+    | un dd => simp only [sem] at hsd; rw [leaf_un, hsd]
+    | cond _ _ _ | unil | ucons _ _ _ => simp [isUn] at hu
+  | false =>
+    have hna := hna hu
+    have hn0 : (pd c).n = false := by rw [pd_n c hu, hcu]; rfl
+    rw [leaf_cond rt n c hu]
+    by_cases hp : (pd c).has (rt n c) = true
+    · simp only [hp, ite_true]
+      revert hp hna hn0
+      generalize rt n c = q
+      generalize pd c = s
+      rcases s with ⟨x, y, z⟩
+      cases q <;> simp [DS.has]
+    · have hm' : (pd c).d = true := hm
+      rw [if_neg hp]; unfold FD; simp [hm']
+
+theorem chainFull_eq {W : World M} (fA fB : W.Attrs → W.Data → Dec) (a : W.Attrs) (d : W.Data) :
+    chainFull fA fB a d = firstNo (fA a d) (fB a d) := rfl
+
+theorem route_A {W : World M} (A B : Authorizer W) (d : W.Data) (c : CAD M) :
+    route A B d A.name c = A.eval c d := by simp [route]
+
+theorem route_B {W : World M} (A B : Authorizer W) (hn : namesOk A B = true) (d : W.Data)
+    (c : CAD M) : route A B d B.name c = B.eval c d := by
+  have hn' := hn
+  simp only [namesOk, Bool.and_eq_true, bne_iff_ne, ne_eq, decide_eq_true_eq] at hn'
+  have hAB : (B.name == A.name) = false := by
+    simp only [beq_eq_false_iff_ne, ne_eq]; exact fun h => hn'.2 h.symm
+  simp [route, hAB]
+
+theorem evalL_one_leaf (rt : String → CAD M → Dec) (n : String) (c : CAD M) :
+    evalL rt (.ucons n c .unil) = leaf rt n c := by
+  by_cases h : leaf rt n c = .noOp <;> simp [evalL, h]
+
+theorem evalL_two_first (rt : String → CAD M → Dec) (n1 n2 : String) (c1 c2 : CAD M) :
+    evalL rt (.ucons n1 c1 (.ucons n2 c2 .unil)) = firstNo (leaf rt n1 c1) (leaf rt n2 c2) := by
+  by_cases h : leaf rt n1 c1 = .noOp <;> by_cases h' : leaf rt n2 c2 = .noOp <;>
+    simp [evalL, firstNo, h, h']
+
+/-- **A-1 (Sound part)**: the two-member chain is `Sound` w.r.t. `chainFull` when both members
+are `Sound` and the names are valid. -/
+theorem chain_sound {W : World M} {fA fB : W.Attrs → W.Data → Dec} (A B : Authorizer W)
+    (hSA : Sound fA A) (hSB : Sound fB B) (hn : namesOk A B = true) :
+    Sound (chainFull fA fB) (chain2 A B) := by
+  have hev : ∀ n c r d, (chain2 A B).eval (.ucons n c r) d = evalL (route A B d) (.ucons n c r) :=
+    fun _ _ _ _ => rfl
+  refine ⟨fun a => chain_L1 A B hn a (hSA.S1 a) (hSB.S1 a), ?_, ?_, ?_, ?_, ?_⟩
+  · intro a
+    have h := chain_foldDown A B hn a (hSA.S1 a) (hSB.S1 a)
+    have hA := hSA.S2 a
+    have hB := hSB.S2 a
+    have := firstNo_S2 _ _ _ _ hA.1 hA.2 hB.1 hB.2
+    rw [h] at this
+    exact this
+  · intro a d hc h
+    rw [chainFull_eq]
+    rw [chain_sem A B hn a _ (hSA.S1 a) (hSB.S1 a)] at h
+    exact chain_sound_of_deny_faithful _ _ _ _ (hSA.S3 a d hc)
+      (hSB.S3 a d hc) (fun hf => hSA.S4 a d hc hf) h
+  · intro a d hc x hx hr h
+    rw [chainFull_eq]
+    rcases chain_refine_shape A B hn a d x hx hr with ⟨c1, hz, h1, _⟩ | ⟨c1, c2, hz, h1, h2⟩
+    · subst hz
+      rw [hev, evalL_one_leaf] at h
+      have := leaf_allow A hSA a d hc (route A B d) A.name (route_A A B d) c1 h1 h
+      rw [this]; simp [firstNo]
+    · subst hz
+      rw [hev, evalL_two_first] at h
+      exact chain_sound_of_deny_faithful _ _ _ _
+        (leaf_allow A hSA a d hc (route A B d) A.name (route_A A B d) c1 h1)
+        (leaf_allow B hSB a d hc (route A B d) B.name (route_B A B hn d) c2 h2)
+        (leaf_deny A hSA a d hc (route A B d) A.name (route_A A B d) c1 h1) h
+  · intro a d hc hf
+    rw [chain_sem A B hn a _ (hSA.S1 a) (hSB.S1 a)]
+    rw [chainFull_eq] at hf
+    exact chain_deny_of_deny_faithful _ _ _ _ (hSA.S3 a d hc) (fun h => hSA.S4 a d hc h)
+      (fun h => hSB.S4 a d hc h) hf
+  · intro a d hc x hx hr hf
+    rw [chainFull_eq] at hf
+    rcases chain_refine_shape A B hn a d x hx hr with ⟨c1, hz, h1, hcua⟩ | ⟨c1, c2, hz, h1, h2⟩
+    · subst hz
+      rw [hev, evalL_one_leaf]
+      by_cases hfa : fA a d = .deny
+      · exact leaf_deny A hSA a d hc (route A B d) A.name (route_A A B d) c1 h1 hfa
+      · have hfa' : fA a d = .noOp := by
+          revert hf hfa; cases fA a d <;> simp [firstNo]
+        obtain ⟨hw1, hs1⟩ := refines_sem h1 (good_wf (hSA.S1 a))
+        have hne := cua_sem (W.truth d) c1 hw1 hcua
+        have hna : sem (W.truth d) c1 ≠ .allow := fun h => by
+          have := hSA.S3 a d hc (by rw [← hs1]; exact h)
+          rw [hfa'] at this; exact absurd this (by decide)
+        have hsd : sem (W.truth d) c1 = .deny := by
+          revert hne hna; cases sem (W.truth d) c1 <;> simp
+        refine leaf_deny_of_cua (route A B d) A.name (W.truth d) c1 hw1 hcua hsd ?_
+        intro hu h
+        rw [route_A] at h
+        have := hSA.S3e a d hc c1 hu h1 h
+        rw [hfa'] at this; exact absurd this (by decide)
+    · subst hz
+      rw [hev, evalL_two_first]
+      exact chain_deny_of_deny_faithful _ _ _ _
+        (leaf_allow A hSA a d hc (route A B d) A.name (route_A A B d) c1 h1)
+        (leaf_deny A hSA a d hc (route A B d) A.name (route_A A B d) c1 h1)
+        (leaf_deny B hSB a d hc (route A B d) B.name (route_B A B hn d) c2 h2) hf
+
+/-- **A-1 (`chain_lawful`)**: if both members are `Lawful` and names are valid and distinct,
+the union authorizer is `Lawful` with `full_chain = firstNonNoOpinion (members.map full)`,
+on the domain where both members are in their domain. -/
+theorem chain_lawful {W : World M} {DA DB : W.Attrs → W.Data → Prop}
+    {fA fB : W.Attrs → W.Data → Dec} (A B : Authorizer W)
+    (hLA : Lawful DA fA A) (hLB : Lawful DB fB B) (hn : namesOk A B = true) :
+    Lawful (fun a d => DA a d ∧ DB a d) (chainFull fA fB) (chain2 A B) where
+  sound := chain_sound A B hLA.sound hLB.sound hn
+  L2 a d hc hD := by
+    have h := chain_foldDown A B hn a (hLA.sound.S1 a) (hLB.sound.S1 a)
+    show firstNo (A.authorize a) (B.authorize a) = _
+    rw [hLA.L2 a d hc hD.1, hLB.L2 a d hc hD.2, h]
+  L3 a d hc hD := chain_L3 A B fA fB hn a d (hLA.sound.S1 a) (hLB.sound.S1 a)
+    (hLA.L3 a d hc hD.1) (hLB.L3 a d hc hD.2)
+  L4 a d hc hD x hx hr := chain_L4 A B fA fB hLA hLB hn a d hc hD.1 hD.2 x hx hr
 
 end K8sAuthz
