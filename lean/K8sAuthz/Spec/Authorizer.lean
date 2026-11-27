@@ -153,4 +153,31 @@ theorem lawful_of_empty_consistent {W : World M} (Dom : W.Attrs → W.Data → P
    fun a d hc => absurd hc (hE a d), fun a d hc => absurd hc (hE a d),
    fun a d hc => absurd hc (hE a d)⟩
 
+/-- Recipe for instances: an authorizer whose `authorize` is exactly the fold-down, whose
+decisions are `good`, whose `eval` is the natural evaluator on conditional input and whose
+`full` agrees with the reference fold (L3) on consistent pairs is `Lawful` (and `Sound`) on the
+domain where this holds. This is the shape the Cedar instantiation (stage 3) will take. -/
+theorem lawful_of_natural {W : World M} (Dom : W.Attrs → W.Data → Prop)
+    (full : W.Attrs → W.Data → Dec) (A : Authorizer W)
+    (h1 : ∀ a, good (A.caa a) = true)
+    (h2 : ∀ a, A.authorize a = foldDown (A.caa a))
+    (hn : ∀ x d, isUn x = false → A.eval x d = sem (W.truth d) x)
+    (h3 : ∀ a d, W.Consistent a d → full a d = sem (W.truth d) (A.caa a)) :
+    Lawful Dom full A := by
+  have h4 : ∀ a d, W.Consistent a d → ∀ x, isUn x = false →
+      Refines (W.truth d) x (A.caa a) → A.eval x d = full a d :=
+    fun a d hc x hx hr => natural_L4 A hn h1 a d (h3 a d hc) x hx hr
+  refine ⟨⟨h1, fun a => ⟨by rw [h2 a]; exact Nat.le_refl _, fun h => by rw [h2 a]; exact h⟩,
+    fun a d hc h => by rw [h3 a d hc]; exact h,
+    fun a d hc x hx hr h => by rw [← h4 a d hc x hx hr]; exact h,
+    fun a d hc h => by rw [← h3 a d hc]; exact h,
+    fun a d hc x hx hr h => by rw [h4 a d hc x hx hr]; exact h⟩,
+    fun a _ _ _ => h2 a, fun a d hc _ => h3 a d hc, fun a d hc _ x hx hr => h4 a d hc x hx hr⟩
+
+/-- The name plays no role in `Lawful` (it matters only for `NamesOk` in a chain). -/
+theorem Lawful.rename {W : World M} {Dom : W.Attrs → W.Data → Prop}
+    {full : W.Attrs → W.Data → Dec} {A : Authorizer W} (h : Lawful Dom full A) (n : String) :
+    Lawful Dom full { A with name := n } :=
+  ⟨⟨h.sound.S1, h.sound.S2, h.sound.S3, h.sound.S3e, h.sound.S4, h.sound.S4e⟩, h.L2, h.L3, h.L4⟩
+
 end K8sAuthz
