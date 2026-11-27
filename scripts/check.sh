@@ -49,6 +49,10 @@ echo "== axioms"
 grep -q "reauthorize_is_sound' depends on axioms: \[propext, Classical.choice, Quot.sound\]" "$LOG/axioms.log" \
   || { echo "reauthorize_is_sound axioms unexpected"; fail=1; }
 grep -c "depends on axioms" "$LOG/axioms.log" | sed 's/^/axiom reports: /'
+if grep -E "^'K8sAuthz\." "$LOG/axioms.log" | grep -q sorryAx; then echo "sorryAx in a K8sAuthz headline theorem"; fail=1; fi
+k8s_ax=$(grep -cE "^'K8sAuthz\." "$LOG/axioms.log")
+k8s_nonstd=$(grep -E "^'K8sAuthz\." "$LOG/axioms.log" | grep "depends on axioms" | sed 's/.*axioms: //' | tr -d '[],' | tr ' ' '\n' | grep -vxE 'propext|Classical.choice|Quot.sound|' | wc -l)
+[ "$k8s_nonstd" -eq 0 ] || { echo "K8sAuthz theorem with non-standard axioms"; fail=1; }
 
 echo "== Cedar import isolation"
 leaks=$(grep -rlE '^import +Cedar\.(TPE|Thm\.TPE)' lean --include='*.lean' --exclude-dir=.lake | grep -v -e '^lean/CedarK8s/Adapter.lean$' -e '^lean/scripts/Axioms.lean$' || true)
@@ -61,6 +65,8 @@ thms=$(grep -rhE '^theorem ' lean/mirror --include='*.lean' | wc -l)
 thms_all=$(grep -rhE '^(@\[[^]]*\] )?(private |protected )?(theorem|lemma) ' lean/mirror lean/K8sAuthz lean/CedarK8s --include='*.lean' | wc -l)
 axs=$(grep -rhE '^axiom ' lean/mirror --include='*.lean' | wc -l)
 own_mods=$(find lean/K8sAuthz lean/CedarK8s -name '*.lean' | wc -l)
+k8s_thms=$(grep -rhE '^(@\[[^]]*\] )?(private |protected )?(theorem|lemma) ' lean/K8sAuthz --include='*.lean' | wc -l)
+k8s_ex=$(grep -rhE '^example' lean/K8sAuthz --include='*.lean' | wc -l)
 if [ $fail -eq 0 ]; then verdict=PASS; else verdict=FAIL; fi
 
 cat > docs/status.md <<EOT
@@ -78,6 +84,8 @@ Verdict: **$verdict**
 | Theorems incl. \`@[..]\`/private, mirror + K8sAuthz + CedarK8s | $thms_all |
 | Mirror axiom declarations | $axs (STATUS.md: 2) |
 | Own Lean modules (K8sAuthz, CedarK8s) | $own_mods |
+| K8sAuthz theorems / examples | $k8s_thms / $k8s_ex |
+| K8sAuthz headline theorems audited (standard axioms only) | $k8s_ax |
 | \`sorry\` outside comments | $sorry_n |
 | Rust tests passed / ignored / failed | ${rust_pass:-0} / ${rust_ign:-0} / ${rust_fail:-0} |
 

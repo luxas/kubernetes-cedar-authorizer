@@ -5,3 +5,4 @@ import K8sAuthz.Spec.ChainN
 import K8sAuthz.Spec.Enforcement
 import K8sAuthz.Spec.Negative
 import K8sAuthz.Spec.Examples
+import K8sAuthz.Spec.Hypotheses
