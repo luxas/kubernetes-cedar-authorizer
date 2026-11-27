@@ -109,11 +109,11 @@ mod test {
 
     #[test]
     fn test_core_schema() {
-        use crate::schema;
+        use crate as schema;
         use std::io::Write;
 
         let test_schema_str =
-            std::fs::read_to_string("src/schema/testfiles/withimpersonation.cedarschema")
+            std::fs::read_to_string("testfiles/withimpersonation.cedarschema")
                 .unwrap_or_default();
 
         let mut core_fragment = schema::core::build_base().expect("to succeed");
@@ -125,7 +125,7 @@ mod test {
 
         // assert test schema file is already formatted
         if core_fragment_str != test_schema_str {
-            let mut f = std::fs::File::create("src/schema/testfiles/withimpersonation.cedarschema")
+            let mut f = std::fs::File::create("testfiles/withimpersonation.cedarschema")
                 .expect("open file works");
             f.write_all(core_fragment_str.as_bytes())
                 .expect("write to work");

@@ -124,6 +124,7 @@ impl ActionUID {
                 member_of, // TODO: Apply as part of "any" action
                 annotations: Default::default(),
                 loc: None,
+                external: false,
             });
     }
 }
@@ -187,6 +188,7 @@ impl EntityWrapper<'_> {
                         }),
                         annotations: Default::default(),
                         loc: Default::default(),
+                        external: false,
                     },
                 );
 

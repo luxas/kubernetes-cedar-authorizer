@@ -341,7 +341,7 @@ mod test {
         use std::io::Write;
 
         let test_schema_str =
-            std::fs::read_to_string("src/schema/testfiles/core.cedarschema").unwrap_or_default();
+            std::fs::read_to_string("testfiles/core.cedarschema").unwrap_or_default();
 
         let core_fragment = super::build_base().expect("to succeed");
         let core_fragment_str = core_fragment
@@ -350,7 +350,7 @@ mod test {
         println!("{core_fragment}");
         // assert test schema file is already formatted
         if core_fragment_str != test_schema_str {
-            let mut f = std::fs::File::create("src/schema/testfiles/core.cedarschema")
+            let mut f = std::fs::File::create("testfiles/core.cedarschema")
                 .expect("open file works");
             f.write_all(core_fragment_str.as_bytes())
                 .expect("write to work");

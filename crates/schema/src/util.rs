@@ -67,6 +67,7 @@ pub fn make_stringmap_type(val_ty: Type<RawName>) -> Option<(CedarTypeName, Enti
                 }),
                 annotations: Default::default(),
                 loc: Default::default(),
+                external: false,
             },
         )
     })
@@ -108,4 +109,14 @@ fn split_rawname(name: &RawName) -> (Option<Name>, String) {
             name_parts[name_parts.len() - 1].to_string(),
         ),
     }
+}
+
+pub fn title_case(name: &str) -> String {
+    name.chars()
+        .enumerate()
+        .map(|(i, c)| match i {
+            0 => c.to_ascii_uppercase(),
+            _ => c,
+        })
+        .collect()
 }

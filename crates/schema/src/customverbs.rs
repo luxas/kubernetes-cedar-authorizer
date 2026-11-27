@@ -1,7 +1,7 @@
 use cedar_policy_core::validator::json_schema::{ApplySpec, Fragment};
 use cedar_policy_core::validator::RawName;
 
-use crate::schema::core::{PRINCIPALS, RESOURCE_ACTION_ANY, RESOURCE_RESOURCE};
+use crate::core::{PRINCIPALS, RESOURCE_ACTION_ANY, RESOURCE_RESOURCE};
 
 use super::core::K8S_NS;
 use super::err::Result;
@@ -53,11 +53,11 @@ mod test {
 
     #[test]
     fn test_core_schema() {
-        use crate::schema;
+        use crate as schema;
         use std::io::Write;
 
         let test_schema_str =
-            std::fs::read_to_string("src/schema/testfiles/withcustomverbs.cedarschema")
+            std::fs::read_to_string("testfiles/withcustomverbs.cedarschema")
                 .unwrap_or_default();
 
         let mut core_fragment = schema::core::build_base().expect("to succeed");
@@ -70,7 +70,7 @@ mod test {
         println!("{core_fragment}");
         // assert test schema file is already formatted
         if core_fragment_str != test_schema_str {
-            let mut f = std::fs::File::create("src/schema/testfiles/withcustomverbs.cedarschema")
+            let mut f = std::fs::File::create("testfiles/withcustomverbs.cedarschema")
                 .expect("open file works");
             f.write_all(core_fragment_str.as_bytes())
                 .expect("write to work");
