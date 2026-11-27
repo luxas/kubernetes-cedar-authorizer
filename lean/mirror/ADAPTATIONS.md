@@ -19,7 +19,7 @@ The new toolchain emits linter warnings only (e.g. `linter.unusedSimpArgs`), whi
 
 | Quantity | STATUS.md | Measured here | Note |
 |---|---|---|---|
-| modules | 23 | 21 `.lean` files | STATUS.md's 23 is not reproducible from the tree; the tree has 21 modules (9 in `authorizer/`, 2 each in the other six directories). The vendored STATUS.md is unchanged; the discrepancy predates this copy (the source tree at 2ee49d340c9 has the same 21 files) |
+| modules | 23 | 21 `.lean` files | STATUS.md's 23 is not reproducible from the tree; the tree has 21 modules (9 in `authorizer/`, 2 each in the other six directories). The vendored STATUS.md is unchanged; the discrepancy predates this copy (the source tree at 2ee49d340c9 has the same 21 `.lean` modules plus `lakefile.lean`) |
 | theorems | 347 | 347 lines matching `^theorem `; 365 when also counting 17 `@[simp] theorem` and 1 `private theorem` | STATUS.md counts only column-0 `theorem` |
 | `sorry` | 0 | 0 | |
 | axioms | 2 (both in `cel/`) | 2 `axiom` declarations (`oAuthor`, `P_76_O3_builtin_agrees_with_author`) | unchanged |
