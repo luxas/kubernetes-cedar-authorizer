@@ -13,7 +13,7 @@ Verdict: **PASS**
 | Mirror axiom declarations | 2 (STATUS.md: 2) |
 | Own Lean modules (K8sAuthz, CedarK8s) | 2 |
 | `sorry` outside comments | 0 |
-| Rust tests passed / ignored / failed | 9 / 1 / 0 |
+| Rust tests passed / ignored / failed | 39 / 1 / 0 |
 
 ## Axiom audit
 
