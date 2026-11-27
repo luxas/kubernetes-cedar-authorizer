@@ -1,0 +1,20 @@
+create|owner|(and (has (. Res::"r1" request) metadata) (has (. (. Res::"r1" request) metadata) labels) (has (. (. (. Res::"r1" request) metadata) labels) owner) (== (. (. (. (. Res::"r1" request) metadata) labels) owner) "alice"))
+create|unchanged|false
+create|prefix|(and (has Res::"r1" name) (like (. Res::"r1" name) "safe-*"))
+create|finalizer|(and (has (. Res::"r1" request) metadata) (has (. (. Res::"r1" request) metadata) finalizers) (contains (. (. (. Res::"r1" request) metadata) finalizers) "protected"))
+create|nodebound|false
+update|owner|(and (has (. Res::"r1" request) metadata) (has (. (. Res::"r1" request) metadata) labels) (has (. (. (. Res::"r1" request) metadata) labels) owner) (== (. (. (. (. Res::"r1" request) metadata) labels) owner) "alice"))
+update|unchanged|(and (has Res::"r1" stored) (has (. Res::"r1" stored) spec) (has (. (. Res::"r1" stored) spec) nodeName) (has (. Res::"r1" request) spec) (has (. (. Res::"r1" request) spec) nodeName) (! (== (. (. (. Res::"r1" stored) spec) nodeName) (. (. (. Res::"r1" request) spec) nodeName))))
+update|prefix|false
+update|finalizer|(and (has (. Res::"r1" request) metadata) (has (. (. Res::"r1" request) metadata) finalizers) (contains (. (. (. Res::"r1" request) metadata) finalizers) "protected"))
+update|nodebound|(and (has Res::"r1" stored) (has (. Res::"r1" stored) spec) (has (. (. Res::"r1" stored) spec) nodeName) (== (. (. (. Res::"r1" stored) spec) nodeName) "n1"))
+update-partial|owner|(and (has (. (. Res::"r1" request) metadata) labels) (has (. (. (. Res::"r1" request) metadata) labels) owner) (== (. (. (. (. Res::"r1" request) metadata) labels) owner) "alice"))
+update-partial|unchanged|(! (== "n1" (. (. (. Res::"r1" request) spec) nodeName)))
+update-partial|prefix|false
+update-partial|finalizer|(and (has (. (. Res::"r1" request) metadata) finalizers) (contains (. (. (. Res::"r1" request) metadata) finalizers) "protected"))
+update-partial|nodebound|true
+delete-like|owner|false
+delete-like|unchanged|(and (has (. Res::"r1" stored) spec) (has (. (. Res::"r1" stored) spec) nodeName) false error error error)
+delete-like|prefix|false
+delete-like|finalizer|false
+delete-like|nodebound|(and (has (. Res::"r1" stored) spec) (has (. (. Res::"r1" stored) spec) nodeName) (== (. (. (. Res::"r1" stored) spec) nodeName) "n1"))

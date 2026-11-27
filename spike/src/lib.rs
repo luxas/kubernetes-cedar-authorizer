@@ -3,3 +3,4 @@ pub mod convert;
 pub mod engine;
 pub mod model;
 pub mod shapes;
+pub mod audit;
