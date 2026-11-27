@@ -1,0 +1,1339 @@
+{
+ "version": 1,
+ "shapes": [
+  {
+   "id": "create-cm-owner",
+   "description": "plain create, name in body, owner label == requester (KEP example shape)",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-01",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "settings",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      },
+      "data": {
+       "mode": "fast"
+      }
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "CreateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ]
+  },
+  {
+   "id": "create-cm-generatename",
+   "description": "create with generateName: name unknown at authorization time, generated name present in object at admission; AdmissionRequest.name is empty",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-02",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "safe-x7k2p",
+       "generateName": "safe-",
+       "namespace": "team-a"
+      }
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "CreateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ],
+   "note": "name must come from object.metadata.name (plan 3.2, review B I4)"
+  },
+  {
+   "id": "create-cm-generatename-unresolved",
+   "description": "generateName not yet applied: no name anywhere (if admission ran before name generation)",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-03",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "generateName": "safe-",
+       "namespace": "team-a"
+      }
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "CreateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "NoOpinion"
+   ],
+   "note": "name-prefix policy does not apply when the name is absent"
+  },
+  {
+   "id": "create-sa-token",
+   "description": "create serviceaccounts/token: name in URL, body is TokenRequest, no stored object",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "serviceaccounts",
+     "subresource": "token",
+     "name": "builder",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-04",
+     "kind": {
+      "group": "authentication.k8s.io",
+      "version": "v1",
+      "kind": "TokenRequest"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "serviceaccounts"
+     },
+     "requestKind": {
+      "group": "authentication.k8s.io",
+      "version": "v1",
+      "kind": "TokenRequest"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "serviceaccounts"
+     },
+     "name": "builder",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "authentication.k8s.io/v1",
+      "kind": "TokenRequest",
+      "metadata": {
+       "name": "builder",
+       "namespace": "team-a"
+      },
+      "spec": {
+       "audiences": [
+        "api"
+       ],
+       "expirationSeconds": 3600
+      }
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "subResource": "token",
+     "requestSubResource": "token",
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "CreateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ],
+   "note": "admission kind/resource group differ from the SAR group ('' vs authentication.k8s.io)"
+  },
+  {
+   "id": "connect-pods-exec",
+   "description": "create pods/exec (POST connect): operation CONNECT, object PodExecOptions, oldObject null",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "pods",
+     "subresource": "exec",
+     "name": "web-0",
+     "namespace": "default"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-05",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "PodExecOptions"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "PodExecOptions"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+     },
+     "name": "web-0",
+     "namespace": "default",
+     "operation": "CONNECT",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "PodExecOptions",
+      "stdin": true,
+      "stdout": true,
+      "container": "debug",
+      "command": [
+       "sh"
+      ]
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "subResource": "exec",
+     "requestSubResource": "exec"
+    }
+   ],
+   "expect": [
+    "Allow"
+   ],
+   "note": "operation CONNECT; verb is create"
+  },
+  {
+   "id": "update-cm",
+   "description": "update, owner unchanged",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "update",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "name": "settings",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-06",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "settings",
+     "namespace": "team-a",
+     "operation": "UPDATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      },
+      "data": {
+       "mode": "slow"
+      }
+     },
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      },
+      "data": {
+       "mode": "fast"
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "UpdateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ]
+  },
+  {
+   "id": "update-cm-finalizer",
+   "description": "update adds the protected finalizer: conditional forbid fires",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "update",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "name": "settings",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-07",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "settings",
+     "namespace": "team-a",
+     "operation": "UPDATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       },
+       "finalizers": [
+        "example.com/protected"
+       ]
+      }
+     },
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "UpdateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Deny"
+   ]
+  },
+  {
+   "id": "update-to-create",
+   "description": "update that turns into create: operation CREATE, oldObject null (secondary create check is unconditional in v1.38)",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "update",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "name": "new-one",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-08",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "new-one",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "new-one",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      }
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "UpdateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ],
+   "note": "verb update, operation CREATE: action cannot be recovered from the AdmissionRequest"
+  },
+  {
+   "id": "patch-pod-node-ok",
+   "description": "patch by node principal on a pod bound to it, nodeName unchanged",
+   "sar": {
+    "user": {
+     "username": "system:node:node-1",
+     "groups": [
+      "system:nodes",
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "patch",
+     "group": "",
+     "version": "v1",
+     "resource": "pods",
+     "name": "web-0",
+     "namespace": "default"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-09",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Pod"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Pod"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+     },
+     "name": "web-0",
+     "namespace": "default",
+     "operation": "UPDATE",
+     "userInfo": {
+      "username": "system:node:node-1",
+      "groups": [
+       "system:nodes",
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+       "name": "web-0",
+       "namespace": "default"
+      },
+      "spec": {
+       "nodeName": "node-1",
+       "containers": [
+        {
+         "name": "app",
+         "image": "x"
+        }
+       ]
+      }
+     },
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+       "name": "web-0",
+       "namespace": "default"
+      },
+      "spec": {
+       "nodeName": "node-1",
+       "containers": [
+        {
+         "name": "app",
+         "image": "x"
+        }
+       ]
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "PatchOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ],
+   "note": "verb patch, operation UPDATE; action patch must be in group update"
+  },
+  {
+   "id": "patch-pod-node-moved",
+   "description": "patch by node principal changes spec.nodeName: sensitive-field forbid fires",
+   "sar": {
+    "user": {
+     "username": "system:node:node-1",
+     "groups": [
+      "system:nodes",
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "patch",
+     "group": "",
+     "version": "v1",
+     "resource": "pods",
+     "name": "web-0",
+     "namespace": "default"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-10",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Pod"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Pod"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+     },
+     "name": "web-0",
+     "namespace": "default",
+     "operation": "UPDATE",
+     "userInfo": {
+      "username": "system:node:node-1",
+      "groups": [
+       "system:nodes",
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+       "name": "web-0",
+       "namespace": "default"
+      },
+      "spec": {
+       "nodeName": "node-2",
+       "containers": [
+        {
+         "name": "app",
+         "image": "x"
+        }
+       ]
+      }
+     },
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+       "name": "web-0",
+       "namespace": "default"
+      },
+      "spec": {
+       "nodeName": "node-1",
+       "containers": [
+        {
+         "name": "app",
+         "image": "x"
+        }
+       ]
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "PatchOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Deny"
+   ]
+  },
+  {
+   "id": "delete-cm",
+   "description": "delete: no object, stored object visible",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "delete",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "name": "settings",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-11",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "settings",
+     "namespace": "team-a",
+     "operation": "DELETE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": null,
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "DeleteOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ]
+  },
+  {
+   "id": "deletecollection-cm",
+   "description": "deletecollection over two objects: name unknown at authorization, one DELETE admission per object",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "deletecollection",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-12a",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "settings",
+     "namespace": "team-a",
+     "operation": "DELETE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": null,
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "DeleteOptions"
+     }
+    },
+    {
+     "uid": "u-12b",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "keep-1",
+     "namespace": "team-a",
+     "operation": "DELETE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": null,
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "keep-1",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "DeleteOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow",
+    "Deny"
+   ],
+   "note": "action deletecollection must be in group delete"
+  },
+  {
+   "id": "create-cm-dryrun",
+   "description": "dryRun=true is not visible to policies; owner is bob so no permit applies",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-13",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "settings",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "bob"
+       }
+      }
+     },
+     "oldObject": null,
+     "dryRun": true,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "CreateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "NoOpinion"
+   ]
+  },
+  {
+   "id": "create-widget-multiversion",
+   "description": "CRD served in v1beta1 and v1 (storage v1): request kind is v1beta1, converted kind is v1",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "example.com",
+     "version": "v1beta1",
+     "resource": "widgets",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-14",
+     "kind": {
+      "group": "example.com",
+      "version": "v1",
+      "kind": "Widget"
+     },
+     "resource": {
+      "group": "example.com",
+      "version": "v1",
+      "resource": "widgets"
+     },
+     "requestKind": {
+      "group": "example.com",
+      "version": "v1beta1",
+      "kind": "Widget"
+     },
+     "requestResource": {
+      "group": "example.com",
+      "version": "v1beta1",
+      "resource": "widgets"
+     },
+     "name": "w1",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "alice",
+      "groups": [
+       "system:authenticated"
+      ]
+     },
+     "object": {
+      "apiVersion": "example.com/v1beta1",
+      "kind": "Widget",
+      "metadata": {
+       "name": "w1",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "alice"
+       }
+      },
+      "spec": {
+       "size": 3
+      }
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "CreateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ],
+   "note": "object is in the request version (requestKind), not the storage version (kind)"
+  },
+  {
+   "id": "create-cm-serviceaccount",
+   "description": "ServiceAccount principal with uid; principal type derived from the username prefix",
+   "sar": {
+    "user": {
+     "username": "system:serviceaccount:team-a:builder",
+     "groups": [
+      "system:serviceaccounts",
+      "system:serviceaccounts:team-a",
+      "system:authenticated"
+     ],
+     "uid": "3f2a9c1e-0000-4000-8000-000000000001"
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-15",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "s",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "system:serviceaccount:team-a:builder",
+      "groups": [
+       "system:serviceaccounts",
+       "system:serviceaccounts:team-a",
+       "system:authenticated"
+      ],
+      "uid": "3f2a9c1e-0000-4000-8000-000000000001"
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "s",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "system:serviceaccount:team-a:builder"
+       }
+      }
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "CreateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ]
+  },
+  {
+   "id": "create-cm-user-no-uid-extra",
+   "description": "user without uid and with extra: principal id is a hash of the username",
+   "sar": {
+    "user": {
+     "username": "bob",
+     "groups": [
+      "system:authenticated"
+     ],
+     "extra": {
+      "scopes": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-16",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "mine",
+     "namespace": "team-a",
+     "operation": "CREATE",
+     "userInfo": {
+      "username": "bob",
+      "groups": [
+       "system:authenticated"
+      ],
+      "extra": {
+       "scopes": [
+        "a",
+        "b"
+       ]
+      }
+     },
+     "object": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "mine",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "bob"
+       }
+      }
+     },
+     "oldObject": null,
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "CreateOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ]
+  }
+ ]
+}
