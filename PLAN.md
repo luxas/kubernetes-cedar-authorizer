@@ -1,6 +1,6 @@
 # Plan: restructure kubernetes-cedar-authorizer around KEP-5681 as shipped in v1.38 (writes first, Lean first)
 
-Status: revision 6 (both blind reviews folded in; decisions D-1..D-13, section 8; follow-ups section 9). Not started; nothing in this
+Status: revision 7 (stages 0-2 implemented, spike findings folded in; both blind reviews folded in; decisions D-1..D-13, section 8; follow-ups section 9). Not started; nothing in this
 plan has been executed.
 Inputs read: `kubernetes` review branch `impl-conditional-authz-review` (HEAD `2ee49d340c9`;
 `review/kep.md`, `summary.md`, `decisions.md`, `properties.md`, `shipped.md`; `lean/`),
@@ -92,7 +92,12 @@ existing schema groups actions. Phase 2 never reconstructs the verb: `AdmissionR
 `operation`, not the verb. Cedar residuals are scope-less `when` clauses and TPE substitutes the
 concrete action, so a residual never mentions `action`; phase 2 uses a fixed placeholder action
 and a load-time check rejects residuals containing `Var::Action`. The Lean `Consistent` is
-therefore defined modulo the action (lemma `residual_independent_of_action`).
+therefore defined modulo the action (lemma `residual_independent_of_action`). **Verified in
+stage 1:** `TpeResponse::reauthorize` with the placeholder action fails for all 17 conditional
+shapes with `InconsistentRequests(InconsistentAction)`; the plain `Authorizer` over the decoded
+JSON conditions is correct, which is the design (3.2). Action entities are **not** put in the
+entity JSON in either phase (both parsers reject them); the schema supplies them, and
+`action in k8s::Action::"update"` / `"delete"` matches `patch` / `deletecollection`.
 
 | verb at authorization | admission `operation`(s) in phase 2 | `object` | `oldObject` |
 |---|---|---|---|
@@ -130,8 +135,13 @@ Schema and encoding constraints found by the TPE audit (verified, `docs/tpe-risk
   containing a marker), never as a concrete record unless fully known (risk T-7).
 - Every optional access in a policy needs a `has` guard, otherwise TPE rejects the whole policy
   set (T-6); policies are validated individually at load time.
-- Kubernetes `map[string]string` (labels) must be typed as a record with declared keys for
-  `labels["owner"]` to type-check; the schema generator's handling is a stage 1 question.
+- Kubernetes `map[string]string` (labels) typing was measured in stage 1 (R-9): a record with
+  declared keys type-checks `labels["owner"]` behind a `has` guard but rejects objects with any
+  other key (the converter must drop undeclared keys); open records are unsupported at the pin;
+  `Set<{key, value}>` always conforms and stays decidable but loses the `labels["owner"]` syntax.
+  Open decision D-14. Subresource action types declare no `stored`; `namespace` is stated only
+  when non-empty. The Lean policy ASTs must be left-nested like Cedar's parser (TPE folds
+  `A && (false && error)` but not `(A && false) && error`).
 
 `absent` for `stored` on create lets `resource has stored` prune at authorization time, which the old
 entity-ref rewrite could not do. Open question to retire in a spike (Stage 1): whether TPE keeps
@@ -339,8 +349,14 @@ is stated as such.
   the principal type derived from the username prefix exactly as in phase 1; `requestKind` (not
   `kind`) selects the schema version of `object`/`oldObject`, and both must be asserted equal or
   the evaluation fails closed (multi-version CRDs); `name` for a create comes from
-  `object.metadata.name`, not from `AdmissionRequest.name`, which is empty on create (pinned by a
-  test against the Go integration tests); `namespace`, `resource`, `subresource` -> resource
+  `object.metadata.name`, not from `AdmissionRequest.name`, which is empty on create (mutation
+  test in stage 1; **not yet pinned against the Go admission order**: if only `generateName` is
+  present when validating admission runs, the name is absent and name policies do not apply,
+  a stage 3 item to confirm in Go);
+  the phase-2 resource type comes from `requestResource` and `requestSubResource`, not from
+  `kind` (for `serviceaccounts/token` the kind group is `authentication.k8s.io`, the resource
+  group is empty), and the object's `apiVersion` must equal `requestKind` or evaluation fails
+  closed; `namespace`, `resource`, `subresource` -> resource
   coordinates; `dryRun` and `options` are not exposed (Cedar context is `{}`); an object without
   `apiVersion`/`kind` never reaches the webhook.
 - `Consistent a d :≡ RequestAndEntitiesRefine (dataToConcrete d) (attrsToPartial a)`. This is
@@ -688,6 +704,10 @@ Critical path is 1 -> 3. Stage 2 is independent of Cedar and can absorb Cedar PR
   (lint); not random, because it would have to be carried in the condition (see 1.3).
 
 - **D-12 Deterministic entity ids**, maps as records, namespace as a string (see 1.3).
+- **D-14 (open) Map typing.** Recommended: generate a declared-keys record for keys that appear in
+  loaded policies (the converter drops other keys) and `Set<{key, value}>` for maps no policy
+  references by key. Alternative: `Set<{key, value}>` everywhere (100% conformance, different
+  policy syntax). Needs your decision before the stage 3 schema generator.
 - **D-13 Actions.** `patch` in group `update`, `deletecollection` in group `delete`; phase 2 uses a
   placeholder action and residuals must not mention `action` (see 1.3).
 
@@ -708,3 +728,21 @@ cover reason/error text (currently only decision, with error-ness handled by A-7
 - **F-6** Reads and selectors, constrained impersonation, update-to-create, `GET` connect.
 - **F-7** Aeneas extraction of `crates/core`; unification of the vendored mirror and `K8sAuthz.Spec`.
 - **F-8** CEL / in-process evaluator path.
+
+---
+
+## 10. Progress log
+
+| Stage | Branch | State | Evidence |
+|---|---|---|---|
+| plan | `plan` | revision 7 | this file, `docs/reviews/` |
+| 0 | `0-skeleton` | done | `scripts/check.sh` PASS; mirror builds unchanged on v4.36.0 (347 theorems, 2 mirror axioms, 0 `sorry`); `docs/status.md` |
+| 1 | `1-tpe-spike` | done | `docs/spike.md`: R-1..R-4, R-6..R-8, R-10..R-12 GO; R-13 prototype only (73/73 fixtures conform only because undeclared fields are dropped; 2/73 with nothing dropped); 20 shapes, 21 admission requests, 0 mismatches; 30 spike tests, mutation-checked |
+| 2 | `2-lean-interface` | done, with gaps | `docs/properties.md`, `docs/interface.md`; A-1..A-4, A-6, A-8, A-9 and the negative theorems proved; A-5, A-7, L6 are named hypotheses (`Hypotheses.lean`); 128 theorems, 0 `sorry`, no new axioms. Deviations from 3.1: `Sound` has separate reference and evaluation clauses (S3/S3e, S4/S4e); `Refines` gained `shrink` and `trunc` steps; the chain domain is `DA ∧ DB`; decisions are projected to `Dec` (no reason/error text); the n-member chain is a nested right fold, the flat union is not mechanised; the mirror's union handler, webhook and enforcer are not shown equal to the spec, only decisions and the partial evaluator are bridged |
+
+Open items carried into stage 3: D-14; the Go admission order for `generateName`; the
+update-to-create secondary check; principal `uid`/`extra`; the Lean re-run of R-1..R-3 (only the
+R-10 printer exists in Lean); a blind review of the final `Lawful` ("too strong for the webhook?
+too weak for A-4?"); R-13 on real clusters and CRDs; the write schema generator per
+(resource, subresource) from discovery. `evaluateConditions` runs no consistency check (the
+plain `Authorizer` path), so soundness rests on A-5 and on the entity builder: a recorded trusted gap.
