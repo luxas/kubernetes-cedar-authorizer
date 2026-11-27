@@ -1,0 +1,9 @@
+[package]
+name = "kca-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# Pure crate: no I/O, no async, no network dependencies (PLAN.md 5b, Aeneas-friendly subset).
+[dependencies]
+cedar-policy = { workspace = true }

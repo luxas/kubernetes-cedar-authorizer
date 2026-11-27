@@ -1,0 +1,29 @@
+name = "k8s-cedar-authz"
+defaultTargets = ["K8sMirror", "K8sAuthz", "CedarK8s"]
+
+# Cedar's Lean formalization, pinned by commit (cedar-spec PR #1015 head, `tpe-lean-model`).
+# The Lean toolchain is whatever this commit declares (D-8): lean-toolchain must match
+# cedar-lean/lean-toolchain at this rev.
+[[require]]
+name = "Cedar"
+git = "https://github.com/cedar-policy/cedar-spec"
+rev = "7d6298b054e70b2152c379d0b89e045b80d5a37b"
+subDir = "cedar-lean"
+
+# Vendored copy of kubernetes/lean (D-1). Each root directory mirrors one Go package.
+[[lean_lib]]
+name = "K8sMirror"
+srcDir = "mirror"
+roots = ["authorizer", "union", "webhook", "encoding", "filters", "conditionsenforcer", "cel"]
+globs = ["authorizer.+", "union.+", "webhook.+", "encoding.+", "filters.+", "conditionsenforcer.+", "cel.+"]
+leanOptions = { autoImplicit = false }
+
+# Strengthened authorizer interface (stage 2). Placeholder in stage 0.
+[[lean_lib]]
+name = "K8sAuthz"
+leanOptions = { autoImplicit = false }
+
+# Cedar instantiation (stage 3). Adapter.lean is the ONLY file importing Cedar.TPE / Cedar.Thm.TPE.
+[[lean_lib]]
+name = "CedarK8s"
+leanOptions = { autoImplicit = false }

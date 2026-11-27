@@ -1,0 +1,6 @@
+repo:   kubernetes (local clone /home/luxask/code/kubernetes; fork luxas/kubernetes)
+branch: impl-conditional-authz-review
+commit: 2ee49d340c9345871599820f6bb4d3ac841673e6
+path:   lean/
+date:   2026-11-27 (vendored)
+note:   Verbatim copy except for lakefile.lean, lean-toolchain, lake-manifest.json and .gitignore, which are replaced by ../lakefile.toml. See ADAPTATIONS.md.
