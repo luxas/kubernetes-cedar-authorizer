@@ -67,8 +67,8 @@ namespace example {
 }
 "#;
 
-/// Nine policies: the five KEP-style ones of PLAN stage 1 (owner-label, sensitive-unchanged,
-/// name-prefix, finalizer, node-bound) plus four that cover the remaining shapes.
+/// Eleven policies: the five KEP-style ones of PLAN stage 1 (owner-label, sensitive-unchanged,
+/// name-prefix, finalizer, node-bound) plus six that cover the remaining shapes.
 /// Every optional access is `has`-guarded (T-6). No policy mentions the resource uid.
 pub const POLICIES: &str = r#"
 @id("owner-label")
@@ -107,6 +107,10 @@ when { resource has stored && resource.stored has metadata && resource.stored.me
 @id("delete-keep")
 forbid(principal, action in k8s::Action::"delete", resource is core::ConfigMap)
 when { resource has name && resource.name like "keep-*" };
+
+@id("masters-delete")
+permit(principal, action in k8s::Action::"delete", resource is core::ConfigMap)
+when { principal.groups.contains("system:masters") };
 
 @id("token-audience")
 permit(principal, action in k8s::Action::"create", resource is core::ServiceAccountToken)

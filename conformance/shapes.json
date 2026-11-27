@@ -1334,6 +1334,312 @@
    "expect": [
     "Allow"
    ]
+  },
+  {
+   "id": "delete-pod-by-node",
+   "description": "no policy applies to node deleting pods: unconditional NoOpinion straight from TPE",
+   "sar": {
+    "user": {
+     "username": "system:node:node-1",
+     "groups": [
+      "system:nodes",
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "delete",
+     "group": "",
+     "version": "v1",
+     "resource": "pods",
+     "name": "web-0",
+     "namespace": "default"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-17",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Pod"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "Pod"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "pods"
+     },
+     "name": "web-0",
+     "namespace": "default",
+     "operation": "DELETE",
+     "userInfo": {
+      "username": "system:node:node-1",
+      "groups": [
+       "system:nodes",
+       "system:authenticated"
+      ]
+     },
+     "object": null,
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+       "name": "web-0",
+       "namespace": "default"
+      },
+      "spec": {
+       "nodeName": "node-1",
+       "containers": [
+        {
+         "name": "app",
+         "image": "x"
+        }
+       ]
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "DeleteOptions"
+     }
+    }
+   ],
+   "expect": [
+    "NoOpinion"
+   ]
+  },
+  {
+   "id": "create-secret-out-of-scope",
+   "description": "resource outside the spike schema: unconditional NoOpinion, never an error",
+   "sar": {
+    "user": {
+     "username": "alice",
+     "groups": [
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "create",
+     "group": "",
+     "version": "v1",
+     "resource": "secrets",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [],
+   "expect": [],
+   "outOfScope": true
+  },
+  {
+   "id": "delete-cm-masters",
+   "description": "system:masters delete: unconditional Allow (permit true, name known so the keep- forbid folds away)",
+   "sar": {
+    "user": {
+     "username": "admin",
+     "groups": [
+      "system:masters",
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "delete",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "name": "settings",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-18",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "settings",
+     "namespace": "team-a",
+     "operation": "DELETE",
+     "userInfo": {
+      "username": "admin",
+      "groups": [
+       "system:masters",
+       "system:authenticated"
+      ]
+     },
+     "object": null,
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "settings",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "bob"
+       }
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "DeleteOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Allow"
+   ]
+  },
+  {
+   "id": "deletecollection-cm-masters",
+   "description": "system:masters deletecollection: permit folds to true but the keep- forbid stays residual, so the map has an Allow condition whose body is true",
+   "sar": {
+    "user": {
+     "username": "admin",
+     "groups": [
+      "system:masters",
+      "system:authenticated"
+     ]
+    },
+    "resourceAttributes": {
+     "verb": "deletecollection",
+     "group": "",
+     "version": "v1",
+     "resource": "configmaps",
+     "namespace": "team-a"
+    }
+   },
+   "admissionRequests": [
+    {
+     "uid": "u-19a",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "keep-1",
+     "namespace": "team-a",
+     "operation": "DELETE",
+     "userInfo": {
+      "username": "admin",
+      "groups": [
+       "system:masters",
+       "system:authenticated"
+      ]
+     },
+     "object": null,
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "keep-1",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "bob"
+       }
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "DeleteOptions"
+     }
+    },
+    {
+     "uid": "u-19b",
+     "kind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "resource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "requestKind": {
+      "group": "",
+      "version": "v1",
+      "kind": "ConfigMap"
+     },
+     "requestResource": {
+      "group": "",
+      "version": "v1",
+      "resource": "configmaps"
+     },
+     "name": "other",
+     "namespace": "team-a",
+     "operation": "DELETE",
+     "userInfo": {
+      "username": "admin",
+      "groups": [
+       "system:masters",
+       "system:authenticated"
+      ]
+     },
+     "object": null,
+     "oldObject": {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+       "name": "other",
+       "namespace": "team-a",
+       "labels": {
+        "owner": "bob"
+       }
+      }
+     },
+     "dryRun": false,
+     "options": {
+      "apiVersion": "meta.k8s.io/v1",
+      "kind": "DeleteOptions"
+     }
+    }
+   ],
+   "expect": [
+    "Deny",
+    "Allow"
+   ]
   }
  ]
 }

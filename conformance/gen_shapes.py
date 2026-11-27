@@ -149,6 +149,28 @@ shape("create-cm-user-no-uid-extra", "user without uid and with extra: principal
       obj=cm("mine", owner="bob"), opts_kind="CreateOptions")],
   ["Allow"])
 
+admin = user("admin", ("system:masters", "system:authenticated"))
+shape("delete-pod-by-node", "no policy applies to node deleting pods: unconditional NoOpinion straight from TPE",
+  sar(node1, "delete", "", "v1", "pods", name="web-0", ns="default"),
+  [ar("u-17", "DELETE", node1, "", "v1", "Pod", "pods", name="web-0", ns="default",
+      old=pod("web-0", "node-1"), opts_kind="DeleteOptions")],
+  ["NoOpinion"])
+shape("create-secret-out-of-scope", "resource outside the spike schema: unconditional NoOpinion, never an error",
+  sar(alice, "create", "", "v1", "secrets", ns="team-a"),
+  [], [], outOfScope=True)
+shape("delete-cm-masters", "system:masters delete: unconditional Allow (permit true, name known so the keep- forbid folds away)",
+  sar(admin, "delete", "", "v1", "configmaps", name="settings", ns="team-a"),
+  [ar("u-18", "DELETE", admin, "", "v1", "ConfigMap", "configmaps", name="settings", ns="team-a",
+      old=cm("settings", owner="bob"), opts_kind="DeleteOptions")],
+  ["Allow"])
+shape("deletecollection-cm-masters", "system:masters deletecollection: permit folds to true but the keep- forbid stays residual, so the map has an Allow condition whose body is true",
+  sar(admin, "deletecollection", "", "v1", "configmaps", ns="team-a"),
+  [ar("u-19a", "DELETE", admin, "", "v1", "ConfigMap", "configmaps", name="keep-1", ns="team-a",
+      old=cm("keep-1", owner="bob"), opts_kind="DeleteOptions"),
+   ar("u-19b", "DELETE", admin, "", "v1", "ConfigMap", "configmaps", name="other", ns="team-a",
+      old=cm("other", owner="bob"), opts_kind="DeleteOptions")],
+  ["Deny", "Allow"])
+
 out = pathlib.Path(__file__).with_name("shapes.json")
 out.write_text(json.dumps({"version": 1, "shapes": S}, indent=1) + "\n")
 print(len(S), "shapes ->", out)
