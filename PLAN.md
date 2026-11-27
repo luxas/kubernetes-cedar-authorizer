@@ -1,6 +1,6 @@
 # Plan: restructure kubernetes-cedar-authorizer around KEP-5681 as shipped in v1.38 (writes first, Lean first)
 
-Status: revision 2 (decisions D-1..D-7 resolved, see section 8). Not started; nothing in this
+Status: revision 4 (decisions D-1..D-10 resolved, see section 8; follow-ups in section 9). Not started; nothing in this
 plan has been executed.
 Inputs read: `kubernetes` review branch `impl-conditional-authz-review` (HEAD `2ee49d340c9`;
 `review/kep.md`, `summary.md`, `decisions.md`, `properties.md`, `shipped.md`; `lean/`),
@@ -10,8 +10,9 @@ testing), cedar PR #2547 (base) and #2581 (partial-attribute public API + JSON).
 The TPE partial-attribute changes were audited by an explore agent (experiments in Lean and
 Rust against the PR heads); the full report is `docs/tpe-risk-report.md` (kept verbatim, with
 [V]erified/[I]nferred markers) and is folded into sections 1.3, 1.4, 3.2, 5 and 7.
-Headline: R-1, R-2, R-3 are **go**; two new blockers were found (T-4 `error` nodes do not round
-trip, T-5 no public way to reauthorize decoded residuals) and are handled in 3.2.
+Headline: R-1, R-2, R-3 are **go**. T-4 (`error` nodes do not round trip) is a documented
+current limitation of Cedar (D-10). T-5 (no public reauthorize for decoded residuals) is not a
+blocker: `evaluateConditions` works on concrete data and uses a normal `PolicySet`.
 
 Standing rules for this plan:
 - **Lean version of cedar-spec, always.** The Lean toolchain is whatever the pinned cedar-spec
@@ -87,9 +88,15 @@ Schema and encoding constraints found by the TPE audit (verified, `docs/tpe-risk
 - `request` and `stored` must be declared **optional** record attributes: `absent` on a required
   attribute is rejected by both implementations, and `unknown` on a required attribute is
   silently upgraded to `present`.
-- The resource entity gets a **synthetic known uid** (for example derived from the request
-  coordinates), with `name` stated `unknown`. A `PartialEntityUid` whose `id` is `None` loses
-  all attribute-level knowledge, so "name unknown" must not be modelled as an unknown id.
+- The resource entity gets a **synthetic uid** with `name` stated `unknown`. A
+  `PartialEntityUid` whose `id` is `None` loses all attribute-level knowledge, so "name
+  unknown" must not be modelled as an unknown id. The uid is an implementation artefact:
+  **policies never mention it** (a load-time lint rejects entity literals of the synthetic id
+  and `resource == ...` comparisons; the policy scope uses `resource is <type>`). The same uid
+  must be used in both phases because the residual embeds it; the plan uses one fixed reserved
+  uid per resource type (for example `core::Secret::"@conditional-request"`, not a valid
+  Kubernetes name), so `evaluateConditions` needs no discovery step. A random uid would have to
+  be carried in the condition and gains nothing, since it cannot be referenced by policies.
 - A record without markers is **closed**: an omitted optional attribute is `absent` and prunes
   policies. Request/stored objects must therefore be stated `present` (or as a partial record
   containing a marker), never as a concrete record unless fully known (risk T-7).
@@ -280,28 +287,28 @@ misbehave" (notes.md bullet 5) by a theorem.
   Cedar's JSON policy format (Rust: `Policy::to_json` on `TpeResponse::residual_policies()`;
   measured 242-849 bytes per policy, about 3.7x the text form, so the 10240-byte limit is
   far away but the 128-condition count is the likelier limit).
-  **`error` nodes (blocker T-4).** A residual containing an `error` node does not round trip:
-  `to_json` emits `{"error":[]}` but `from_json` rejects it, and the text form `error()` does
-  not parse. `encode` therefore (1) drops residuals that are exactly `error` or `false`
-  (they take no part in the decision, `reauthorize_is_sound`), and (2) for any other residual
-  with an `error` node follows decision D-10. Stated and proved at the Lean `Residual` level
-  (C-5) before Rust relies on it.
-  Follow-up (not in this plan): switch to the Cedar text format once the residual printer is
-  trustworthy; the encoding sits behind one function pair `encode`/`decode` so this is a
-  one-module change. `description` carries the policy's `@id`/annotations, never semantics.
-- `evaluateConditions x d`: decode residual policies from `x`, check
-  `isValidAndConsistent` for `dataToConcrete d` against `attrsToPartial a` (invalid -> fail
-  closed to `FailureDecision x`), then `Response.reauthorize`; map the Cedar response to
-  Deny / NoOpinion / Allow as above. **In Rust this is not `TpeResponse::reauthorize`**
-  (blocker T-5): that method needs the live `TpeResponse`, which borrows the schema, partial
-  request and partial entities and is not serializable. The Rust `evaluate` must (1) validate
-  the concrete request and entities against the schema, (2) re-derive the partial world from
-  the ACR's attributes and run the consistency check, (3) run a plain `Authorizer` over the
-  decoded residuals. Steps 1-2 are the Rust counterpart of Lean's executable
-  `isValidAndConsistent`; step 3 equals `reauthorize` (3/3 cases verified in the audit,
-  `response.rs:344-362`), and is covered by C-8/C-9 below. Failure cases that must fail
-  closed: `RequestValidation | EntityValidation | EntitiesConsistency | RequestConsistency`,
-  and a missing partial entity in the concrete store (`MissingEntity`).
+  **Residuals that never apply are dropped.** A residual that is exactly `false` or exactly
+  `error` takes no part in the decision (`reauthorize_is_sound`: erroring policies are skipped),
+  so `conditionsAwareAuthorize` emits no condition for it. Errors from the first phase are not
+  carried to the second phase (follow-up F-1).
+  **`error` nodes inside a remaining residual (T-4, current limitation, D-10).** Such a residual
+  does not round trip through Cedar JSON (`to_json` emits `{"error":[]}`, `from_json` rejects
+  it). For now the authorizer fails closed for that request (the map constructor's fail-closed
+  result, with a counter). This is a limitation of today's Cedar and is expected to be fixed
+  upstream (F-2); it is stated as a hypothesis `NoErrorNodes` of the completeness theorem
+  (soundness is unconditional, since failing closed never returns `Allow`).
+- `evaluateConditions x d`: `evaluateConditions` is concrete, so it needs no partial-evaluation
+  machinery. It (1) builds a Cedar `PolicySet` from the Cedar JSON policies in `x`'s conditions,
+  (2) builds the concrete request and entities from `d` (the entity builder is schema-conformant
+  by construction; a build failure fails closed to `FailureDecision x`), (3) runs the ordinary
+  Cedar authorizer, (4) maps the response to Deny / NoOpinion / Allow as above (satisfied forbid ->
+  `Deny`; otherwise no satisfied permit -> `NoOpinion`; satisfied permit and no forbid -> `Allow`).
+  Lean states the same thing with `Response.reauthorize` on the residual list; the Lean proof
+  carries `isValidAndConsistent` as the hypothesis `Consistent a d` (clause L4's domain), and
+  the `Guarded` wrapper covers inconsistent input, so no runtime consistency check is added.
+  The audit showed a plain `Authorizer` over the residual policy set agrees with
+  `TpeResponse::reauthorize` (3/3 cases, `response.rs:344-362`); this stays a differential
+  test (C-9), not a design constraint.
 - Conditions are *self-contained* residual policies, so `evaluateConditions` takes no policy
   store: purity (L6) holds by construction, and the atomicity goal is met for free.
 - Size limits: if the residual set exceeds 128 conditions or any residual exceeds 10240 bytes,
@@ -315,11 +322,10 @@ Theorems:
 | C-1 | `cedarAuthorizer_lawful`: `Lawful` for the Cedar authorizer, `full a d = ofCedar (isAuthorized req es policies)` | `residuals_decision_agrees`, `partial_authorize_*_is_sound`, `reauthorize_*_equiv` |
 | C-2 | `decisive_means_exact`: if TPE decides at authorization time, `conditionsAwareAuthorize a` is that decision and equals `full a d` for all consistent `d` (the KEP's "positive/negative pruning") | `no_satisfied_effect_if_empty_...`, `satisfied_effect_if_non_empty_...` |
 | C-3 | `map_agrees_with_fold`: Cedar's `reauthorize` on a map's residuals equals the K8s D > N > A fold (`pmap`) under the oracle `o c = ⟦decode c⟧ req es` with Cedar's error -> not-applicable (D-2) | mirror `evaluate.lean` + C-1 |
-| C-4 | `invalid_data_fails_closed`: data that fails schema validation or consistency never yields `Allow` | by construction + `isValidAndConsistent_env` |
+| C-4 | `invalid_data_fails_closed`: if the entity builder rejects the data, the result is `FailureDecision`, never `Allow`; inconsistent data is covered by `Guarded` (G1/G2) | by construction + guard |
 | C-5 | `encode_decode`: structured round trip `decode (encode r) = r` at the Lean `Residual` level (the byte-level print/parse is a Rust obligation, covered by differential tests, see 5.3) | Lean |
 | C-6 | `limits_fail_closed`: if limits are exceeded the result is `FailureDecision`-shaped and never `Allow` | mirror `conditionsmap.lean` |
-| C-8 | `consistency_check_equiv`: the Rust re-implemented consistency check rejects exactly when Lean `isValidAndConsistent` does | differential, stage 4/5 |
-| C-9 | `plain_authorizer_eq_reauthorize`: a plain `Authorizer` over the decoded residual policy set equals `TpeResponse::reauthorize` | differential, stage 5 |
+| C-9 | `plain_authorizer_eq_reauthorize`: a plain `Authorizer` over the policies decoded from conditions equals `Response.reauthorize` on the residuals | differential, stage 5 |
 | C-7 | `request_name_unknown_on_create`: partial name is respected, i.e. a policy mentioning `resource.name` residualizes on create and is decided on update/delete | tests + theorem instance of C-1 |
 
 ### 3.3 Trusted gap, stated openly
@@ -416,7 +422,7 @@ reverted; blind reviewers get a sharp central question and a full environment pr
 - Input: `docs/tpe-risk-report.md`. Its R-1..R-4 answers are re-run, not trusted: copy the
   audit's experiments (`exp/Exp1.lean`, `rexp/src/main.rs`, `rexp/src/bin/exp2.rs`) into
   `spike/` and run them against the pinned SHAs.
-- Additional checks: (R-6) `error`-node round trip and decision D-10; (R-7) plain
+- Additional checks: (R-6) frequency of residuals with an `error` node (D-10 limitation); (R-7) plain
   `Authorizer` over decoded residuals equals `reauthorize`; (R-8) closed-record versus
   partial-record behaviour of the object converter; (R-9) K8s `map[string]string` typing
   for `labels["x"]`; (R-10) a Lean type-erased printer compared with Rust `to_json` for the
@@ -531,8 +537,8 @@ Critical path is 1 -> 3. Stage 2 is independent of Cedar and can absorb Cedar PR
 | Entity builder is unproved | named hypothesis, differential tests, listed in `status.md` |
 | KEP/Go still moving (alpha) | mirror pinned to `2ee49d340c9`; `docs/interface.md` is a delta, not a fork |
 | `Lawful` too strong | stage-2 review question; webhook-with-remote-engine as the test case |
-| `error` nodes do not round trip (T-4) | decision D-10; Lean-level proof (C-5); spike R-6 |
-| No public reauthorize for decoded residuals (T-5) | Rust `evaluate` re-implemented, differential tests C-8/C-9 |
+| `error` nodes do not round trip (T-4) | current limitation (D-10): fail closed; follow-up F-2; frequency measured in spike R-6 |
+| No public reauthorize for decoded residuals (T-5) | not needed: `evaluate` uses a normal `PolicySet` over the decoded JSON policies; differential test C-9 |
 | One invalid policy fails the whole TPE call (T-6) | validate each policy at load; run TPE per policy; fails closed |
 | Closed-record footgun (T-7), `unknown`-on-required (T-8) | state `present` for unknown objects; optional `request`/`stored`; trusted gap 3.3 |
 | Cedar skips erroring `forbid` (T-10) | D-2 reference semantics, plus a lint for constructs that can error in a forbid |
@@ -556,13 +562,26 @@ Critical path is 1 -> 3. Stage 2 is independent of Cedar and can absorb Cedar PR
 - **D-9 Name on create / deletecollection.** Always unknown; no special case for a
   `metadata.name` field selector.
 
-- **D-10 Residuals with an `error` node** (needed before stage 3; recommended default).
-  Default: **reject and fail closed**: if after dropping exactly-`error`/`false` residuals any
-  remaining residual still contains an `error` node, the authorizer returns the map
-  constructor's fail-closed result for that request, and a counter records how often it happens.
-  This is the simplest correct choice. Stage 1 measures the frequency on the five KEP policies
-  and a lint list; if it is common, upgrade to substituting a typed always-erroring expression,
-  proved decision-equivalent at the Lean `Residual` level.
+- **D-10 Residuals with an `error` node.** Current limitation of Cedar: fail closed for the
+  request (counter, no `Allow`), documented; fix expected in a future Cedar (F-2). Residuals that
+  are exactly `false` or `error` are dropped as they never apply.
+- **D-11 Resource uid.** One fixed reserved synthetic uid per resource type, never usable by policies
+  (lint); not random, because it would have to be carried in the condition (see 1.3).
 
 Open, to decide at stage boundaries: Aeneas feasibility (5b); whether `Lawful` should also
 cover reason/error text (currently only decision, with error-ness handled by A-7).
+
+---
+
+## 9. Follow-ups (explicitly not in this plan)
+
+- **F-1** Carry errors from the first phase (`conditionsAwareAuthorize`) into `evaluateConditions`
+  so diagnostics and error-sensitive policies survive the two phases.
+- **F-2** Handle residuals with `error` nodes once Cedar can round-trip them (upstream fix),
+  then drop the `NoErrorNodes` hypothesis; until then fail closed.
+- **F-3** Cedar text format for conditions instead of JSON.
+- **F-4** Stricter error semantics (fail closed on a Deny-effect error), D-2.
+- **F-5** Namespace object and other non-request entities in conditions.
+- **F-6** Reads and selectors, constrained impersonation, update-to-create, `GET` connect.
+- **F-7** Aeneas extraction of `crates/core`; unification of the vendored mirror and `K8sAuthz.Spec`.
+- **F-8** CEL / in-process evaluator path.
