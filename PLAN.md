@@ -1,6 +1,6 @@
 # Plan: restructure kubernetes-cedar-authorizer around KEP-5681 as shipped in v1.38 (writes first, Lean first)
 
-Status: revision 5 (blind review B folded in; review A pending; decisions D-1..D-13, section 8; follow-ups section 9). Not started; nothing in this
+Status: revision 6 (both blind reviews folded in; decisions D-1..D-13, section 8; follow-ups section 9). Not started; nothing in this
 plan has been executed.
 Inputs read: `kubernetes` review branch `impl-conditional-authz-review` (HEAD `2ee49d340c9`;
 `review/kep.md`, `summary.md`, `decisions.md`, `properties.md`, `shipped.md`; `lean/`),
@@ -232,74 +232,103 @@ L2  CedarK8s  (instantiation)         K8s write request -> Cedar      crates/cor
 
 ### 3.1 L1 `K8sAuthz.Spec`: the strengthened authorizer interface (Lean, no Cedar)
 
+Revised after blind review A (`docs/reviews/plan-review-A.md`). The reviewer's compiling Lean core
+sketch (`docs/reviews/sketch/ReviewASketch.lean`, 917 lines, no `sorry`) is the starting point
+of stage 2; it showed that the first draft of this section was **unsatisfiable** (`Lawful` and
+`Guarded` contradicted each other, and `Refines` was not definable from `World`).
+
 **Principle.** An authorizer is a record of functions with *no* embedded laws. A separate
-predicate `Lawful` says what it must satisfy, relative to an **independent reference
-semantics** `full`. Faulty authorizers stay expressible, and the framework (union, filter,
-enforcer, guard) is proved correct for lawful ones and safe for guarded ones.
+predicate says what it must satisfy, relative to an **independent reference semantics**
+`full`. Faulty authorizers stay expressible, and the framework (union, filter, enforcer, guard)
+is proved correct for lawful ones and safe for guarded ones.
 
 ```lean
 structure World where
-  Attrs      : Type                       -- authorization-time attributes (URL-derived metadata)
-  Data       : Type                       -- ConditionsData (admission-time request, object, oldObject)
-  Consistent : Attrs → Data → Prop        -- Data describes the same request Attrs was derived from;
-                                          -- Attrs may know LESS (name is always unknown on create)
-  full       : Attrs → Data → Decision    -- reference: "the authorizer had everything up front"
+  Attrs      : Type                          -- authorization-time attributes (URL-derived metadata)
+  Data       : Type                          -- ConditionsData (admission-time request, object, oldObject)
+  Consistent : Attrs → Data → Prop           -- Data describes the same request Attrs was derived from;
+                                             -- Attrs may know LESS (name unknown on create)
+  truth      : Data → Condition → CondResult -- the instance's own meaning of each condition
+                                             -- (Cedar: evaluate the decoded residual on concrete data)
 
 structure Authorizer (W : World) where
-  name                     : String       -- DNS-1123, unique within a union (mirror `NamedAuthorizer`)
+  name                     : String          -- non-empty, distinct, DNS-1123 within a union
   authorize                : W.Attrs → Decision × String × Option Err
   conditionsAwareAuthorize : W.Attrs → ConditionsAwareDecision
   evaluateConditions       : ConditionsAwareDecision → W.Data → Decision × String × Option Err
 ```
 
-`full` is *not* derived from the decision tree; each authorizer family supplies it (Cedar:
-`isAuthorized` on the concrete request; RBAC: its rule match; chain: the first-non-`NoOpinion`
-fold of its members' `full`). This is what removes the circularity in 1.5 item 1.
+`full : W.Attrs → W.Data → Decision` is a **parameter of the predicates**, not a field of `World`
+(each authorizer family supplies its own; a chain's `full` differs from its members').
+`⟦x⟧_o` is the reference fold of a decision under an oracle `o`: D > N > A within a map, first
+non-`NoOpinion` within a union. `Refines o x y` (x refines y) is the reflexive-transitive
+closure of agreeing partial-evaluation steps (a condition replaced by its result under `o`; a
+union collapsed when one outcome remains). `good x` is `WF x` together with `FailureDecision x ∈
+PossibleDecisions x` for conditional `x`: the review showed that a union child with
+`PD = {Allow}` is WF yet has `FD = NoOpinion ∉ PD` (mirror `P_44_needs_child_WF`).
 
-**The strengthened contract.** `Lawful A full` holds iff for every `a` and every `d` with
-`Consistent a d`:
-
-| # | Clause | Strengthens |
-|---|---|---|
-| L1 | `WF (A.conditionsAwareAuthorize a)` | the mirror's builder invariants become an authorizer obligation (P-35) |
-| L2 | **Exact fold-down:** `(A.authorize a).1 = (A.conditionsAwareAuthorize a).FoldDown`, where `FoldDown x = x` if unconditional, else `x.FailureDecision`. Consequences, stated as theorems: `authorize = Allow → conditionsAwareAuthorize = Allow`; a conditional decision with a Deny condition folds to `Deny`; `authorize` never returns `Allow` for a conditional decision | KEP rule 1 (currently "MUST implement as FromParts" only for *unaware* authorizers) and P-49; notes.md bullets 2 and 3 |
-| L3 | **Soundness:** `full a d ∈ PossibleDecisions (A.conditionsAwareAuthorize a)` | P-18/P-37/P-52, now against `full` instead of the decision's own evaluator |
-| L4 | **Refinement:** for every `x` with `Refines x (A.conditionsAwareAuthorize a)`: `(A.evaluateConditions x d).1 = full a d`. `Refines` is the reflexive-transitive closure of agreeing partial evaluation (conditions replaced by their result under an oracle that agrees with `full`) | **new**; the KEP says the authorizer "must not expect to receive back exactly the decision it issued" but never states what it must then do |
-| L5 | **Unconditional exactness:** if `A.conditionsAwareAuthorize a` is unconditional then it equals `full a d` for every consistent `d` (so it cannot depend on data it never saw) | **new**; also yields "unconditional `ConditionsAwareAuthorize` equals `Authorize`" |
-| L6 | **Purity / atomicity:** by type. `evaluateConditions` takes only `(x, d)`: no store, no clock. An authorizer with opaque IDs (the KEP's `policy16`) is instead stated against `StoreStable : Store → Prop` hypotheses | KEP goal "atomic set of policies" (alpha: not implemented) |
-| L7 | **Exact decision, not just class:** L4 is equality of `Decision`, so `Deny` is never confused with `NoOpinion` | notes.md bullet 1 |
-
-`Guarded A` adds the *closure* property that today lives only in external clamps:
+**`Sound full A` (holds even when a remote fails; what A-4's forward direction needs).** For all
+`a`, and `d` with `Consistent a d`:
 
 | # | Clause |
 |---|---|
-| G1 | for all `x d` (consistent or not, refinement or not): if `x` is conditional then `(A.evaluateConditions x d).1 ∈ PossibleDecisions x`; if `x` is unconditional, the result is `Deny` with `ErrorConditionEvaluationNotSupported` |
-| G2 | never returns `Allow` unless `Allow ∈ PossibleDecisions x` |
+| S1 | `good (A.conditionsAwareAuthorize a)` |
+| S2 | one-sided fold-down: `authorize a` is never more permissive than `FoldDown (conditionsAwareAuthorize a)` in the order `Deny < NoOpinion < Allow`, and a Deny is preserved (`FoldDown x = x` if unconditional, else `FailureDecision x`). Equality is not provable for the shipped webhook (two separate remote calls; the legacy path and the conditions-aware path can disagree while both fail closed) |
+| S3 | for every conditional `x` with `Refines (truth d) x (conditionsAwareAuthorize a)`: `evaluateConditions x d = Allow → full a d = Allow` |
+| S4 | **Deny-faithful**: `full a d = Deny → evaluateConditions x d = Deny` for such `x` with `Deny ∈ PD x`, and any forbid the authorizer could not encode or evaluate is counted as a Deny effect when building the fail-closed result (review C4: a member that fails closed to `NoOpinion` where `full = Deny` lets a later chain member allow) |
 
-`guard : Authorizer W → Authorizer W` (the union/webhook/enforcer clamp, as one function) is
-proved to satisfy `Guarded (guard A)` for **every** `A`, and `Lawful A full → Lawful (guard A) full`
-(clamps are inert on lawful authorizers). This replaces the assumption "authorizers do not
-misbehave" (notes.md bullet 5) by a theorem.
+**`Lawful Dom full A` (exactness; extends `Sound`; needs availability).** Adds, for `Dom a d ∧
+Consistent a d` (a domain of inputs where the authorizer can succeed: the limits, builder and
+error-node conditions `H` of 3.2 live here, not in a prose caveat):
 
-**Theorems built on the contract** (abstract; proved once, reused by every instance):
+| # | Clause | Notes |
+|---|---|---|
+| L2 | `authorize a = FoldDown (conditionsAwareAuthorize a)` (decision part) | exact; error nil-ness is added only if A-7 is proved at this level |
+| L3 | **agreement:** `full a d = ⟦conditionsAwareAuthorize a⟧_{truth d}` | implies the old possible-set soundness (P-37), exactness of unconditional decisions, and ties every unconditional result of partial evaluation to `full` (the "P-28 gap"); the former L5 and L7 are derived and removed |
+| L4 | **refinement, conditional input only:** for every conditional `x` with `Refines (truth d) x (conditionsAwareAuthorize a)`: `evaluateConditions x d = full a d` | unconditional input is *not* constrained here (the first draft was false: the shipped union and webhook return `FailureDecision` for unconditional input, as the KEP requires of authorizers without condition support) |
+
+**`Guarded A` (closure that today lives only in external clamps).** For all `x d` (consistent or
+not):
+
+| # | Clause |
+|---|---|
+| G1 | if `x` is conditional and `good x`: `evaluateConditions x d ∈ PossibleDecisions x`; if `x` is unconditional: the result is `FailureDecision x` (or `Deny` with `ErrorConditionEvaluationNotSupported` for an authorizer without condition support) |
+| G2 | `evaluateConditions x d = Allow → Allow ∈ PossibleDecisions x` |
+
+L6 (purity) is **not** a Lean clause (every Lean function is pure, so it would be vacuous). It is an
+implementation obligation, reviewed in Rust: `evaluateConditions` reads nothing but `(x, d)`.
+Lean statements are made per store snapshot `S` (`full_S`, `A_S`); that conditions embed the
+residual policies is what lets Cedar meet the obligation (C-8).
+
+`guard : Authorizer W → Authorizer W` implements the union and webhook clamp (`FailureDecision`
+on violation). Proved: `Guarded (guard A)` for every `A`; for `Lawful`, `guard_inert` and
+`Lawful Dom full (guard A)` (this needs L3: `full ∈ PD x` for the refined `x`, since only
+`PD x ⊆ PD (caa a)` is known). The three Go clamps are different functions: the enforcer's
+return guard answers `Deny` with a fixed error where the union and webhook answer
+`FailureDecision`. Unifying them (Go change 5) is a behaviour change at the enforcer only, and
+is stated as such.
+
+**Theorems on top** (all abstract; proved once, with the sketch's proofs as the base):
 
 | ID | Statement |
 |---|---|
-| A-1 | `chain_lawful`: `Lawful` is closed under the union authorizer built from named, unique members; `full_chain = firstNonNoOpinion (members.map full)`. Evaluation routes by **name** (as Go does), not by position; the proof of the parallel walk is lifted from `lean-test-2`'s `evaluate_eq_ideal` |
-| A-2 | `guard_inert` / `guard_closed` as above |
-| A-3 | `refinement_closed`: refining a refinement stays a refinement; so in-process partial evaluation followed by the webhook's evaluation equals direct evaluation. Restates P-27/P-28 at authorizer level; the counterexamples remain as the hypotheses "no errors in the partial evaluator" and "union names well-formed" |
-| A-4 | `enforcement_exact`: for a classified write with `Consistent a d`, a lawful chain, and the enforcer present (mirror hypothesis `P_68_enforcer_runs`, which is false for aggregated APIs and was false for unsafe delete before D-1), the request is never served unless `full a d = Allow` (soundness), and is served whenever `full a d = Allow` and no other admission plugin rejects it (completeness; the filter lets a request through iff `Allow ∈ PD`, which L3 makes complete). Both directions are conditional on evaluation being idempotent (L6), because the enforcer runs once per object for `deletecollection` and again on storage retries (P-67). Strictly stronger than the mirror's `end_to_end_safety` ("never more permissive") |
-| A-5 | `consistency_established`: the pipeline derives `Data` from the same request that produced `Attrs` (a model of `AdmissionRequest` construction), so `Consistent a d` holds, including "name unknown at authorization time". It cannot be proved in Lean (there is no Go model of admission attributes); it is a named hypothesis like the mirror's `P_68_enforcer_runs`, backed by Go-side tests |
-| A-6 | `unaware_fail_closed`: a consumer that did not ask for conditions never gets `Allow` from a conditional decision (mirror P-49, restated through L2) |
-| A-7 | `status_agreement`: the filter and the enforcer map `(decision, hasError)` to HTTP status with one function; a request rejected in either phase gets the status the other would give for the same final decision (notes.md bullet "403 vs 500") |
-| A-8 | `lawful_nonvacuous`: `Lawful` and `Guarded` are satisfiable by (i) an always-`NoOpinion` authorizer, (ii) a toy conditional authorizer over `Data = Bool`, with a concrete `Consistent` that is neither empty nor total |
+| A-1 | `chain_lawful`: if every member is `Lawful` (hence `good`) and names are non-empty, pairwise distinct and DNS-1123 (`NamesOk`), the union authorizer is `Lawful` with `full_chain = firstNonNoOpinion (members.map full)`. `NamesOk` is a hypothesis because `union.New` checks only empty and duplicate names and the builder checks DNS-1123 later, failing the whole union closed (then `Authorize` ignores names and can return `Allow` while `FoldDown` gives `NoOpinion`: a real inconsistency, proposed Go change 6). Routing is by name; `Add` is a no-op after the first member containing an unconditional Allow or Deny. Proved for two members in the sketch; the `n`-member version is an induction |
+| A-2 | `guard_guarded`, `guard_inert`, `guard_lawful` as above |
+| A-3 | `refines_sem`: `Refines o x y` and `wf y` imply `wf x` and `⟦x⟧_o = ⟦y⟧_o` (confluence); `peval_is_refinement`: for `WF d`, a total oracle `o`, a partial evaluator `p ⊑ o` that returns no errors, `Refines o (peval d p) d` (mirror P-25/P-27/P-28; the error premise and well-formed names are the hypotheses, the counterexamples stay as negative theorems). The bare closure property is only transitivity of `Refines` and is not an interesting theorem |
+| A-4 | `enforcement_exact`, **per admission invocation**: for a classified write, one `(a, d)` with `Consistent a d`, `Dom a d`, a `Lawful` chain, the evaluating authorizer equal to the issuing one (mirror `P_72` reload hypothesis), and the enforcer present (mirror `P_68`): the enforcer admits iff `full a d = Allow`. The forward direction (admit implies `Allow`) needs only `Sound`. Request-level statements add hypotheses: the committed object is the validated one (storage retries re-run validation), `deletecollection` is evaluated per object, update-to-create adds the unconditional secondary `create` check, and later admission plugins can still reject. Evaluation by the enforcer is on the post-mutation object, so `full` is defined on that object |
+| A-5 | `consistency_established`: a **Go-side conformance property**, not a Lean theorem: decoding the `AdmissionRequest` and recomputing the attributes must give `Consistent a d`. The corpus shows which `(verb, operation)` pairs are consistent: create/CREATE, update/UPDATE, patch/UPDATE, update/CREATE, delete/DELETE, deletecollection/DELETE with n objects. A `Consistent` that is empty on real pairs would make A-4 silently vacuous (`lawful_of_empty_consistent`), so non-emptiness on the real relation is a stage 3 exit criterion |
+| A-6 | `unaware_fail_closed`: a consumer that did not ask for conditions never gets `Allow` from a conditional decision (mirror P-49 via S2) |
+| A-7 | `status_agreement`: filter and enforcer map `(decision, hasError)` to HTTP status with one function (mirror-level, not at authorizer level) |
+| A-8 | `lawful_nonvacuous`: `Lawful ∧ Guarded` hold for the always-`NoOpinion` authorizer (`A0_lawful`, `guard_guarded`) and for a toy conditional authorizer over `Data = Bool` with a `Consistent` that is neither empty nor total (`A2_lawful`, `W2_consistent_nontrivial`) |
+| A-9 | `chain_sound_of_deny_faithful`: chain soundness holds if every member is `Allow`-sound and Deny-faithful; and `fail_closed_to_noOp_is_fail_open` as the negative theorem. For the webhook deployment this means `failurePolicy: Deny` for the Cedar webhook, or the stated hypothesis that it is not fail-open |
 
 **Proposed Go-side changes** (written to `docs/interface.md`, not implemented here):
-1. Doc comment on `Authorizer`: state L2, L4 and L5 in prose; today only "MUST implement as FromParts" exists.
-2. State that `EvaluateConditions` receives a refinement of what the authorizer issued.
-3. Define the relation between `ConditionsData` and `Attributes` (`Consistent`) and require the enforcer to supply data satisfying it; document that `name` is unknown at authorization time for `create` and `deletecollection`.
-4. State that an authorizer with opaque IDs must be `StoreStable` between the two phases.
-5. Provide one exported guard (`authorizer.GuardEvaluation`) used by union, webhook and enforcer, so the three hand-written clamps cannot drift (kep-delta K5 has the same finding for `FailureDecision`).
+1. Doc comment on `Authorizer`: state agreement (L3), refinement (L4) and fold-down (S2/L2) in prose; today only "MUST implement as FromParts" exists.
+2. State that `EvaluateConditions` receives a refinement of what the authorizer issued, only for conditional input.
+3. Define the relation between `ConditionsData` and `Attributes` (`Consistent`) and require the enforcer to supply data satisfying it; document that `name` is unknown at authorization time for `create` without subresource and for `deletecollection`.
+4. State that an authorizer with opaque IDs must read no state in `EvaluateConditions` beyond its arguments, or be stable over a snapshot.
+5. Provide one exported guard used by union, webhook and enforcer (with the Deny-versus-`FailureDecision` difference made explicit).
+6. Validate DNS-1123 names in `union.New` so a misconfiguration fails at startup instead of failing every decision closed (mirror review K11).
 
 ### 3.2 L2 `CedarK8s`: Cedar as a lawful authorizer for writes
 
@@ -370,9 +399,9 @@ Theorems:
 
 | ID | Statement | Proof source |
 |---|---|---|
-| C-1 | `cedarAuthorizer_lawful_up_to H`: `Lawful` for the Cedar authorizer under `H = Fits ∧ NoErrorNodes ∧ BuilderOk` (limits, D-10, entity builder), and unconditionally `Guarded` with never-`Allow` outside `H` (review B, I1: the fail-closed branches are deliberate violations of L3/L5 when `full = Allow`), `full a d = ofCedar (isAuthorized req es policies)` | `residuals_decision_agrees`, `partial_authorize_*_is_sound`, `reauthorize_*_equiv` |
+| C-1 | `cedarAuthorizer_lawful`: `Lawful Dom` with `Dom = Fits ∧ NoErrorNodes ∧ BuilderOk` (limits, D-10, entity builder), and unconditionally `Sound`, `Guarded` and Deny-faithful: every fail-closed branch counts each forbid that could not be encoded as a Deny effect (review A, C4; review B, I1), `full a d = ofCedar (isAuthorized req es policies)` | `residuals_decision_agrees`, `partial_authorize_*_is_sound`, `reauthorize_*_equiv` |
 | C-2 | `unconditional_exact`: whenever `conditionsAwareAuthorize` returns an unconditional decision by the case split above it equals `full a d` for every consistent `d` (the KEP's positive and negative pruning); and a conditional result keeps every undecided forbid (no conditional Deny is pruned) | `no_satisfied_effect_if_empty_...`, `satisfied_effect_if_non_empty_...` |
-| C-3 | `map_agrees_with_fold`: Cedar's `reauthorize` on a map's residuals equals the K8s D > N > A fold (`pmap`) under the oracle `o c = ⟦decode c⟧ req es` with Cedar's error -> not-applicable (D-2) | mirror `evaluate.lean` + C-1 |
+| C-3 | `map_agrees_with_fold` (invariant: Cedar conditions are never evaluated by the generic K8s evaluator; they carry no in-process evaluator, so the oracle `error -> false` is the only one in use, review A M4): Cedar's `reauthorize` on a map's residuals equals the K8s D > N > A fold (`pmap`) under the oracle `o c = ⟦decode c⟧ req es` with Cedar's error -> not-applicable (D-2) | mirror `evaluate.lean` + C-1 |
 | C-4 | `invalid_data_fails_closed`: if the entity builder rejects the data, the result is `FailureDecision`, never `Allow`; inconsistent data is covered by `Guarded` (G1/G2) | by construction + guard |
 | C-5 | `encode_decode`: structured round trip `decode (encode r) = r` at the Lean `Residual` level (the byte-level print/parse is a Rust obligation, covered by differential tests, see 5.5) | Lean |
 | C-6 | `limits_fail_closed`: if limits are exceeded the result is `FailureDecision`-shaped and never `Allow` | mirror `conditionsmap.lean` |
@@ -518,17 +547,21 @@ reverted; blind reviewers get a sharp central question and a full environment pr
   two-level entity encoding) before stage 3 starts.
 
 ### Stage 2: strengthened interface in Lean (parallel with stage 1)
-- Build on the vendored mirror; add `K8sAuthz/Spec` (section 3.1): `World`, `Authorizer`,
-  `Lawful`, `Guarded`, `guard`, `Refines`, A-1..A-8. Lift the useful proofs from `lean-test-2`
-  (`evaluate_eq_ideal`, `unification-plan.md`) rather than rewriting them, minus Mathlib.
-- Re-derive the mirror's end-to-end theorems from `Lawful` where possible; record which
-  mirror theorems become corollaries and which stay Go-specific.
-- Prove non-vacuity: a trivial lawful authorizer (`AlwaysNoOpinion`), a conditional one built
-  on a toy `World` (data is a boolean), and an `example` showing `Consistent` is satisfiable and
-  not trivially true.
-- Write `docs/interface.md` (proposed Go doc changes and the KEP delta).
-- Exit: 0 `sorry`; axioms listed; blind review answers: "is `Lawful` too strong for any real
-  authorizer (e.g. the webhook with a remote policy engine) or too weak to imply A-4?"
+- Start from `docs/reviews/sketch/ReviewASketch.lean` (compiles, no `sorry`, toy decision type) and
+  rebuild it over the vendored mirror's real types (`ConditionsAwareDecision`, `ConditionsMap`,
+  `DecisionSet`, the union builder) in `lean/K8sAuthz/Spec/`: `World` (with `truth`), `Authorizer`,
+  `good`, `Refines`, `Sound`, `Lawful Dom full`, `Guarded`, `guard`, then A-1..A-9. Lift useful
+  proofs from `lean-test-2` (`evaluate_eq_ideal`) only where they still apply (its contract was
+  one-sided on `authorize` and Deny-on-unconditional).
+- Re-derive the mirror's end-to-end theorems from `Lawful` where possible; record which mirror
+  theorems become corollaries and which stay Go-specific.
+- Non-vacuity as compiled `example`s (A-8) and the negative theorems the review found
+  (`chain_needs_valid_names`, `chain_needs_good_members`, `G1_needs_good`,
+  `fail_closed_to_noOp_is_fail_open`, `L4_literal_false`, `plan_lawful_guarded_clash`).
+- Write `docs/interface.md` (proposed Go doc changes 1-6 and the KEP delta).
+- Exit: 0 `sorry`; axioms listed; every A-n has a theorem or an explicit hypothesis entry;
+  `lake build` and `scripts/check.sh` pass; a blind review asks "is `Lawful` too strong for any
+  real authorizer (the webhook with a remote engine) or too weak to imply A-4?".
 
 ### Stage 3: Cedar instantiation in Lean (needs stages 1 and 2)
 - Implement `CedarK8s` (3.2) behind `Adapter.lean`; prove C-1..C-7 for writes.
