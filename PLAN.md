@@ -1,6 +1,6 @@
 # Plan: restructure kubernetes-cedar-authorizer around KEP-5681 as shipped in v1.38 (writes first, Lean first)
 
-Status: revision 4 (decisions D-1..D-10 resolved, see section 8; follow-ups in section 9). Not started; nothing in this
+Status: revision 5 (blind review B folded in; review A pending; decisions D-1..D-13, section 8; follow-ups section 9). Not started; nothing in this
 plan has been executed.
 Inputs read: `kubernetes` review branch `impl-conditional-authz-review` (HEAD `2ee49d340c9`;
 `review/kep.md`, `summary.md`, `decisions.md`, `properties.md`, `shipped.md`; `lean/`),
@@ -32,13 +32,13 @@ Standing rules for this plan:
   evaluates them. v1.38 ships a different wire model: `ConditionsMap` / `Union` decisions in
   `SubjectAccessReview.status.conditionalDecision`, evaluated either by an in-process evaluator
   or by the webhook through the new `AuthorizationConditionsReview` (ACR) call.
-- `kube_invariants/` (about 1.1k lines) exists only because the old Cedar TPE could express
+- `kube_invariants/` (about 1.3k lines) exists only because the old Cedar TPE could express
   "unknown" only as an entity reference. It rewrites `resource.name`, `resource.namespace` etc.
   into entity refs. Partial attributes (`AttrState = value | partialRecord | present | absent |
   unknown`) remove the need for that rewrite.
 - `symcc.rs`/`fork.rs` (analysis), `selectors.rs` (reads), `impersonate.rs`/`connect.rs`
   (other verbs) are outside the first scope.
-- Still valuable: `schema/` (OpenAPI + discovery -> Cedar schema, ~3.1k lines),
+- Still valuable: `schema/` (OpenAPI + discovery -> Cedar schema, ~2.5k lines),
   `entitybuilder.rs` (object JSON -> Cedar entity), `attributes.rs` (SAR -> attributes),
   `kubestore.rs` (policy loading), the localdev kind setup.
 
@@ -80,9 +80,37 @@ state the K8s contract in those terms and instantiate it with Cedar.
 |---|---|---|---|---|
 | `principal` (user, groups, uid, extra) | value | value | value | value |
 | `resource.apiGroup / resource / subresource / namespace` | value | value | value | value (namespace may be unset for cluster-wide) |
-| `resource.name` | **always unknown** (`generateName`, name in body) | value | value | **unknown**, always modelled so (a `metadata.name` field selector would just have been a `delete`) |
+| `resource.name` | **unknown** for create without subresource (`generateName`, name in body); **value** for create with a subresource (`create serviceaccounts/token`, `pods/binding`, `pods/eviction`: the name is in the URL) | value | value | **unknown**, always modelled so (a `metadata.name` field selector would just have been a `delete`) |
 | `resource.request` (new object) | `present`/`unknown` | `present`/`unknown` | `absent` | `absent` |
 | `resource.stored` (old object) | **`absent`** | `unknown` (update-to-create exists) | `unknown` | `unknown` |
+
+**Action mapping (review B, C2).** The authorization-time action is the request verb. `patch` is
+a member of the action group `update`, and `deletecollection` of the group `delete`, so
+`action in k8s::Action::"delete"` matches both and one policy covers per-object admission (the KEP
+says delete conditions apply to `deletecollection`, `kep.md:3451-3460`); stage 1 confirms how the
+existing schema groups actions. Phase 2 never reconstructs the verb: `AdmissionRequest` carries
+`operation`, not the verb. Cedar residuals are scope-less `when` clauses and TPE substitutes the
+concrete action, so a residual never mentions `action`; phase 2 uses a fixed placeholder action
+and a load-time check rejects residuals containing `Var::Action`. The Lean `Consistent` is
+therefore defined modulo the action (lemma `residual_independent_of_action`).
+
+| verb at authorization | admission `operation`(s) in phase 2 | `object` | `oldObject` |
+|---|---|---|---|
+| create | CREATE | new object | none |
+| create `pods/exec` etc. (POST connect) | CONNECT | `PodExecOptions` etc. | none |
+| create on a subresource (`serviceaccounts/token`, `pods/eviction`) | CREATE | body of the subresource kind (`TokenRequest`, `Eviction`), not the parent | none (the target object is invisible to policies, `security.md` S-10) |
+| update, patch | UPDATE, or CREATE (update-to-create; the secondary check is unconditional `Authorize` in v1.38, so conditional-only create policies deny it, to be documented and tested) | new | stored |
+| delete | DELETE | none | stored |
+| deletecollection | DELETE, once per matching object | none | stored |
+
+**Deterministic entity ids (review B, C3; decision D-12).** Residuals keep entity literals, so
+every entity that can appear as a literal has an id that is a pure function of request data:
+principal id is the user `uid` when set, else a hash of the username; principal `extra`,
+`groups` and the label and annotation maps are **records or sets, not entities** (schema
+generator change); `resource.namespace` is the namespace name as a string (F-5 revisits). The old
+`new_uuid()` entity ids are removed, not ported. A load-time check rejects schemas with
+entity-typed attributes reachable from the principal or resource other than the principal and the
+synthetic resource.
 
 Schema and encoding constraints found by the TPE audit (verified, `docs/tpe-risk-report.md` Q1/Q2/T-7/T-8):
 - `request` and `stored` must be declared **optional** record attributes: `absent` on a required
@@ -127,7 +155,7 @@ only `present`, and what size the residual policies have.
   in one adapter module per language.
 - K8s limits that the Cedar instantiation must respect: 128 conditions per map (total over the
   three lists), 10240 bytes per condition, IDs and types domain-prefixed, a map must not be
-  NoOpinion-only (`conditionsmap.go`, mirrored in `lean/authorizer/conditionsmap.lean`).
+  NoOpinion-only (folds to an unconditional NoOpinion without error, `kep.md:1404-1410`; description at most 1024 bytes; `conditionsmap.go`, mirrored in `lean/authorizer/conditionsmap.lean`).
 - Cedar skips policies that error (both permit and forbid). K8s' algebra fails closed on
   Deny-effect errors. See decision D-2.
 
@@ -177,6 +205,11 @@ In scope (first milestone):
 - Authorizer role only: the webhook answers `SubjectAccessReview` with `Allow`, `Deny`,
   `NoOpinion` or a `ConditionsMap`, and answers `AuthorizationConditionsReview`.
 - Lean first, with theorems; then Rust backport; then kind e2e.
+
+Out-of-scope request shapes still reach the webhook (it is the cluster's authorizer). They
+receive an unconditional `NoOpinion`, never an error; a test covers every such shape. A SAR for a
+write that does not advertise `ConditionsMap` and `Union` in `handledDecisionTypes` runs the same
+TPE and is folded with `FailureDecision` (`Deny` if a Deny condition exists, else `NoOpinion`).
 
 Out of scope (recorded so they are not lost):
 reads/selectors, `GET` connect, impersonation and constrained impersonation, update-to-create
@@ -255,8 +288,8 @@ misbehave" (notes.md bullet 5) by a theorem.
 | A-1 | `chain_lawful`: `Lawful` is closed under the union authorizer built from named, unique members; `full_chain = firstNonNoOpinion (members.map full)`. Evaluation routes by **name** (as Go does), not by position; the proof of the parallel walk is lifted from `lean-test-2`'s `evaluate_eq_ideal` |
 | A-2 | `guard_inert` / `guard_closed` as above |
 | A-3 | `refinement_closed`: refining a refinement stays a refinement; so in-process partial evaluation followed by the webhook's evaluation equals direct evaluation. Restates P-27/P-28 at authorizer level; the counterexamples remain as the hypotheses "no errors in the partial evaluator" and "union names well-formed" |
-| A-4 | `enforcement_exact`: for a classified write with `Consistent a d`, a lawful chain, and the enforcer present (mirror hypothesis `P_68_enforcer_runs`, which is false for aggregated APIs and was false for unsafe delete before D-1), the request is served iff `full a d = Allow`. Both directions: no fail-open, and no spurious reject (the filter lets a request through iff `Allow ∈ PD`, which L3 makes complete). Strictly stronger than the mirror's `end_to_end_safety` ("never more permissive") |
-| A-5 | `consistency_established`: the pipeline derives `Data` from the same request that produced `Attrs` (a model of `AdmissionRequest` construction), so `Consistent a d` holds, including "name unknown at authorization time" |
+| A-4 | `enforcement_exact`: for a classified write with `Consistent a d`, a lawful chain, and the enforcer present (mirror hypothesis `P_68_enforcer_runs`, which is false for aggregated APIs and was false for unsafe delete before D-1), the request is never served unless `full a d = Allow` (soundness), and is served whenever `full a d = Allow` and no other admission plugin rejects it (completeness; the filter lets a request through iff `Allow ∈ PD`, which L3 makes complete). Both directions are conditional on evaluation being idempotent (L6), because the enforcer runs once per object for `deletecollection` and again on storage retries (P-67). Strictly stronger than the mirror's `end_to_end_safety` ("never more permissive") |
+| A-5 | `consistency_established`: the pipeline derives `Data` from the same request that produced `Attrs` (a model of `AdmissionRequest` construction), so `Consistent a d` holds, including "name unknown at authorization time". It cannot be proved in Lean (there is no Go model of admission attributes); it is a named hypothesis like the mirror's `P_68_enforcer_runs`, backed by Go-side tests |
 | A-6 | `unaware_fail_closed`: a consumer that did not ask for conditions never gets `Allow` from a conditional decision (mirror P-49, restated through L2) |
 | A-7 | `status_agreement`: the filter and the enforcer map `(decision, hasError)` to HTTP status with one function; a request rejected in either phase gets the status the other would give for the same final decision (notes.md bullet "403 vs 500") |
 | A-8 | `lawful_nonvacuous`: `Lawful` and `Guarded` are satisfiable by (i) an always-`NoOpinion` authorizer, (ii) a toy conditional authorizer over `Data = Bool`, with a concrete `Consistent` that is neither empty nor total |
@@ -271,18 +304,36 @@ misbehave" (notes.md bullet 5) by a theorem.
 ### 3.2 L2 `CedarK8s`: Cedar as a lawful authorizer for writes
 
 - `attrsToPartial : Attrs → PartialRequest × PartialEntities` per table in 1.3.
-- `dataToConcrete : Data → Request × Entities` (principal, action, resource entity with
-  `request`/`stored` attributes from `object`/`oldObject`).
+- `dataToConcrete : Data → Request × Entities` (principal, placeholder action, resource entity
+  with `request`/`stored` attributes from `object`/`oldObject`). Normative derivation from the ACR
+  `AdmissionRequest` (review B, I4): `userInfo` {username, uid, groups, extra} -> principal, with
+  the principal type derived from the username prefix exactly as in phase 1; `requestKind` (not
+  `kind`) selects the schema version of `object`/`oldObject`, and both must be asserted equal or
+  the evaluation fails closed (multi-version CRDs); `name` for a create comes from
+  `object.metadata.name`, not from `AdmissionRequest.name`, which is empty on create (pinned by a
+  test against the Go integration tests); `namespace`, `resource`, `subresource` -> resource
+  coordinates; `dryRun` and `options` are not exposed (Cedar context is `{}`); an object without
+  `apiVersion`/`kind` never reaches the webhook.
 - `Consistent a d :≡ RequestAndEntitiesRefine (dataToConcrete d) (attrsToPartial a)`. This is
   *defined* via Cedar's relation, so Cedar's soundness theorems apply without a bridge lemma.
-- `conditionsAwareAuthorize a`: run `Cedar.TPE.isAuthorized`. If `decision.isSome`, return the
-  unconditional decision (Cedar `deny` with a satisfied forbid -> `Deny`; `deny` with no
-  satisfied forbid -> `NoOpinion`; `allow` -> `Allow`). Otherwise emit a `ConditionsMap`: one
-  Deny condition per residual forbid, one Allow condition per residual permit. Cedar has no
-  NoOpinion-effect policies, so `noOpinionConditions = []`.
+- `conditionsAwareAuthorize a`: run `Cedar.TPE.isAuthorized`, but **do not use its `decision`
+  directly** (review B, C1): Cedar's TPE answers `Deny` when no permit can fire even if undecided
+  residual forbids remain, and for Kubernetes that is "Deny if the forbid is true, else
+  NoOpinion", so returning NoOpinion would let a later authorizer allow a request the forbid
+  denies. Let `F` be the residual forbids that are neither `false` nor `error`, `P` the residual
+  permits that are neither `false` nor `error`, `TF` the forbids that are exactly `true` and `TP`
+  the permits that are exactly `true`. Then: `TF ≠ {}` -> `Deny`; else `F = {}` and `TP ≠ {}` ->
+  `Allow`; else `F = {}` and `P = {}` and `TP = {}` -> `NoOpinion`; otherwise a `ConditionsMap`
+  with one Deny condition per member of `F` and one Allow condition per member of `P ∪ TP` (a
+  `true` permit becomes an Allow condition whose body is `true`; a map with only Deny conditions
+  is intended, since a conditional Deny must survive, `kep.md` "Authorizer requirements"). Cedar
+  has no NoOpinion-effect policies, so `noOpinionConditions = []`. The map constructor is never
+  called with zero Deny and zero Allow conditions.
   **Condition encoding (D-3, resolved).** No CEL translation: the condition *is* the Cedar
-  residual. `id = kubernetes.cedarpolicy.com/<policy-id>` (policy id sanitized to a label-key
-  name part; the encoding and its injectivity are a Lean definition with a lemma),
+  residual. `id = kubernetes.cedarpolicy.com/p-<first 24 hex of sha256(policy-id)>` (an injective map of
+  arbitrary policy ids into at most 63 label characters does not exist, so collisions are
+  detected at policy load and the policy set is rejected: injectivity is a load-time invariant,
+  not a theorem; the original policy id goes into `description`, at most 1024 bytes),
   `type = kubernetes.cedarpolicy.com/residual-policy`, `condition` = the residual policy in
   Cedar's JSON policy format (Rust: `Policy::to_json` on `TpeResponse::residual_policies()`;
   measured 242-849 bytes per policy, about 3.7x the text form, so the 10240-byte limit is
@@ -319,16 +370,21 @@ Theorems:
 
 | ID | Statement | Proof source |
 |---|---|---|
-| C-1 | `cedarAuthorizer_lawful`: `Lawful` for the Cedar authorizer, `full a d = ofCedar (isAuthorized req es policies)` | `residuals_decision_agrees`, `partial_authorize_*_is_sound`, `reauthorize_*_equiv` |
-| C-2 | `decisive_means_exact`: if TPE decides at authorization time, `conditionsAwareAuthorize a` is that decision and equals `full a d` for all consistent `d` (the KEP's "positive/negative pruning") | `no_satisfied_effect_if_empty_...`, `satisfied_effect_if_non_empty_...` |
+| C-1 | `cedarAuthorizer_lawful_up_to H`: `Lawful` for the Cedar authorizer under `H = Fits ∧ NoErrorNodes ∧ BuilderOk` (limits, D-10, entity builder), and unconditionally `Guarded` with never-`Allow` outside `H` (review B, I1: the fail-closed branches are deliberate violations of L3/L5 when `full = Allow`), `full a d = ofCedar (isAuthorized req es policies)` | `residuals_decision_agrees`, `partial_authorize_*_is_sound`, `reauthorize_*_equiv` |
+| C-2 | `unconditional_exact`: whenever `conditionsAwareAuthorize` returns an unconditional decision by the case split above it equals `full a d` for every consistent `d` (the KEP's positive and negative pruning); and a conditional result keeps every undecided forbid (no conditional Deny is pruned) | `no_satisfied_effect_if_empty_...`, `satisfied_effect_if_non_empty_...` |
 | C-3 | `map_agrees_with_fold`: Cedar's `reauthorize` on a map's residuals equals the K8s D > N > A fold (`pmap`) under the oracle `o c = ⟦decode c⟧ req es` with Cedar's error -> not-applicable (D-2) | mirror `evaluate.lean` + C-1 |
 | C-4 | `invalid_data_fails_closed`: if the entity builder rejects the data, the result is `FailureDecision`, never `Allow`; inconsistent data is covered by `Guarded` (G1/G2) | by construction + guard |
-| C-5 | `encode_decode`: structured round trip `decode (encode r) = r` at the Lean `Residual` level (the byte-level print/parse is a Rust obligation, covered by differential tests, see 5.3) | Lean |
+| C-5 | `encode_decode`: structured round trip `decode (encode r) = r` at the Lean `Residual` level (the byte-level print/parse is a Rust obligation, covered by differential tests, see 5.5) | Lean |
 | C-6 | `limits_fail_closed`: if limits are exceeded the result is `FailureDecision`-shaped and never `Allow` | mirror `conditionsmap.lean` |
+| C-8 | `store_independent`: `evaluateConditions` depends on nothing but the decision and the data, so a policy reload between the phases cannot change the result (KEP P-72; a selling point of self-contained residuals) | by type |
 | C-9 | `plain_authorizer_eq_reauthorize`: a plain `Authorizer` over the policies decoded from conditions equals `Response.reauthorize` on the residuals | differential, stage 5 |
 | C-7 | `request_name_unknown_on_create`: partial name is respected, i.e. a policy mentioning `resource.name` residualizes on create and is decided on update/delete | tests + theorem instance of C-1 |
 
 ### 3.3 Trusted gap, stated openly
+
+(Consequence, review B M10: Lean cannot generate expected results for object JSON because the
+converter is a hypothesis there, so `Vectors` only covers pre-converted entities. The converter,
+the riskiest Rust code, gets a Rust-only golden corpus in stage 5 and the R-13 data.)
 
 `object JSON -> Cedar record` (schema-directed conversion in `entitybuilder.rs`) is the largest
 piece that cannot be proved cheaply. Plan: the Lean model fully covers metadata
@@ -436,8 +492,30 @@ reverted; blind reviewers get a sharp central question and a full environment pr
   when `request` is `present`; (R-2) is `stored: absent` on create pruned as expected;
   (R-3) residual size per policy against the 10240-byte limit; (R-4) can the Lean and Rust
   residuals be compared structurally; (R-5) which Cedar names the adapter must wrap.
-- Exit: `docs/spike.md` with a go/no-go for each risk. If R-1 fails, the plan changes (a
-  Cedar change request, or a two-level entity encoding) before stage 3 starts.
+- **Shape corpus (R-12, review B, Q5; the cheapest test of the riskiest assumption).** Write
+  `conformance/shapes.json` with about 14 request shapes: create, create with `generateName`,
+  create `serviceaccounts/token`, create `pods/exec` (CONNECT), update, update-to-create, patch,
+  delete, deletecollection over two objects, dryRun, a multi-version CRD, a ServiceAccount
+  principal, a node principal. Each has the SAR attributes and a hand-built or captured
+  `AdmissionRequest` (take them from `test/integration/apiserver/conditionalauthorization` on the
+  review branch). For each shape: build the partial request and entities, run TPE with the five
+  KEP policies, run phase 2 with a plain `Authorizer` over the decoded JSON policies, and
+  compare with the original policies on the concrete data. Pass: identical decision for every
+  shape. This fixes the Attrs <-> Data table of section 1.3 before any Lean theorem relies on it.
+- **Real-object conformance (R-13).** Push about 200 real objects (pods, deployments, secrets,
+  configmaps, a CRD with `x-kubernetes-preserve-unknown-fields`, a newer-version object) through
+  schema generation, the converter and entity validation. Pass: at least 99% conform; failures are
+  listed by cause (they fail closed in production, so this measures availability).
+- **Schema generator for writes** (own deliverable, not a footnote): resource types per
+  (resource, subresource), optional `request`/`stored` whose type is the kind of the
+  (resource, subresource) in the request's version, labels and annotations as records, no
+  entity-typed attributes (D-12), the `has`-guard lint, the reserved-uid lint, and the
+  `NameCollisions` on `meta::V1ObjectMeta` that Stage 0 found (the OpenAPI golden test is
+  currently `#[ignore]`d).
+- Exit (thresholds): `docs/spike.md` records go/no-go per risk. R-3: at most 2 KiB per residual
+  policy and at most 16 conditions for at least 95% of the KEP policies; R-12: all shapes pass;
+  R-13: at least 99% conform. If R-1 fails, the plan changes (a Cedar change request, or a
+  two-level entity encoding) before stage 3 starts.
 
 ### Stage 2: strengthened interface in Lean (parallel with stage 1)
 - Build on the vendored mirror; add `K8sAuthz/Spec` (section 3.1): `World`, `Authorizer`,
@@ -473,11 +551,19 @@ reverted; blind reviewers get a sharp central question and a full environment pr
 - 5a (can start after stage 0): `crates/core` wire types for SAR (with `authorizationOptions`,
   `conditionalDecision`) and ACR, `ConditionsMap` constructor and validation, `PossibleDecisions`,
   `FailureDecision`. `k8s-openapi 0.25` predates these types, so hand-written serde types
-  generated from the v1.38 OpenAPI, with a round-trip test against Go-produced JSON.
+  generated from the v1.38 OpenAPI, with a round-trip test against Go-produced JSON (fixtures
+  extracted from `encoding_test.go` and the integration tests of the review branch; they are a
+  stage 0/5a deliverable).
 - 5b (Cedar-facing code uses the public `cedar-policy` API of #2581, not `cedar_policy_core::tpe`
   internals; the entity-reference rewrite is dropped): `core::cedar` mirrors `CedarK8s` (attrs -> partial, conditions, authorize, evaluate).
-- 5c: `crates/webhook`: SAR endpoint (legacy `authorize` when no options, `conditionsAwareAuthorize`
-  when advertised), ACR endpoint with UID echo, policy store, metrics.
+- 5c: `crates/webhook`: SAR endpoint (a write without options runs TPE and folds with
+  `FailureDecision`; with advertised options returns the conditional decision; every
+  out-of-scope shape returns an unconditional `NoOpinion`), ACR endpoint with UID echo, policy
+  store (source, hot reload, per-policy validation, T-6), counters for every fail-closed branch
+  (D-10, limits, builder failure), TLS with required apiserver client certificate, and **no
+  logging of request or object bodies** (the old `#[instrument(ret)]` in `main.rs` would log
+  Secrets; the ACR carries full objects). Rust unit tests for gate-off/version-skew behaviour
+  (P-61, P-80, P-81) so they do not wait for stage 6.
 - 5d: conformance runner: every vector from stage 4 passes in Rust; byte-level residual
   print/parse fidelity tested against the Lean `Residual`; fuzzing with generated schemas,
   policies and objects; deterministic seeds only.
@@ -485,8 +571,8 @@ reverted; blind reviewers get a sharp central question and a full environment pr
   states), run in a scratch worktree; survivors are listed.
 - Equivalence review: fresh agents compare each Rust module to its Lean module branch by branch
   (same procedure as the Go<->Lean reviews in `review/lean-equivalence/`).
-- Exit: all vectors pass; equivalence reviews report no divergence or each divergence is
-  recorded as a decision.
+- Exit: all vectors pass with zero unexplained diffs; equivalence reviews report no divergence
+  or each divergence is recorded as a decision.
 
 ### Stage 6: integration on kind
 - Node image from the `kubernetes` branch with `ConditionalAuthorization=true`,
@@ -503,7 +589,7 @@ CEL builtin evaluator, SymCC analysis. Each starts with its own stage-1-style sp
 
 ---
 
-## 5b. Rust <-> Lean parity, now and later
+## 5.5 Rust <-> Lean parity, now and later
 
 - **Now:** differential testing. The Lean `Vectors` executable and the checked-in
   `conformance/` corpus are the oracle for `crates/core` (stage 4/5); in-process comparison
@@ -568,7 +654,11 @@ Critical path is 1 -> 3. Stage 2 is independent of Cedar and can absorb Cedar PR
 - **D-11 Resource uid.** One fixed reserved synthetic uid per resource type, never usable by policies
   (lint); not random, because it would have to be carried in the condition (see 1.3).
 
-Open, to decide at stage boundaries: Aeneas feasibility (5b); whether `Lawful` should also
+- **D-12 Deterministic entity ids**, maps as records, namespace as a string (see 1.3).
+- **D-13 Actions.** `patch` in group `update`, `deletecollection` in group `delete`; phase 2 uses a
+  placeholder action and residuals must not mention `action` (see 1.3).
+
+Open, to decide at stage boundaries: Aeneas feasibility (5.5); whether `Lawful` should also
 cover reason/error text (currently only decision, with error-ness handled by A-7).
 
 ---
