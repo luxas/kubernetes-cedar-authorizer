@@ -36,7 +36,12 @@ pub struct Phase1 {
     pub resource_type: String,
     pub action: String,
     pub plain_residual_set_json_roundtrip: bool,
+    /// numbers of policies per TPE class: (true, false, error, residual) for permits and forbids
+    pub counts: Counts,
 }
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Counts { pub tp: usize, pub fp: usize, pub ep: usize, pub rp: usize, pub tf: usize, pub ff: usize, pub ef: usize, pub rf: usize }
 
 pub struct Attrs {
     pub verb: String,
@@ -173,7 +178,7 @@ impl Engine {
         let Some(rt) = resource_type(&a.group, &a.resource, &a.subresource) else {
             // out of scope shapes are NoOpinion, never an error
             return Ok((Phase1 { outcome: Outcome::Unconditional(Class::NoOpinion), residuals: vec![], tpe_decision: None,
-                resource_type: String::new(), action: a.verb.clone(), plain_residual_set_json_roundtrip: true }, None));
+                resource_type: String::new(), action: a.verb.clone(), plain_residual_set_json_roundtrip: true, counts: Counts::default() }, None));
         };
         let pr = principal(&a.user);
         let name_known = match a.verb.as_str() {
@@ -211,7 +216,9 @@ impl Engine {
         let rf = set(Box::new(resp.residual_forbids()));
         let ep = set(Box::new(resp.error_permits()));
         let ef = set(Box::new(resp.error_forbids()));
-        let _ = (ep, ef);
+        let fp = set(Box::new(resp.false_permits()));
+        let ff = set(Box::new(resp.false_forbids()));
+        let counts = Counts { tp: tp.len(), fp: fp.len(), ep: ep.len(), rp: rp.len(), tf: tf.len(), ff: ff.len(), ef: ef.len(), rf: rf.len() };
         let mut stats = Vec::new();
         let mut roundtrip_ok = true;
         let mut conds = |ids: &BTreeSet<String>, effect: &'static str| -> (Vec<Cond>, bool) {
@@ -252,7 +259,7 @@ impl Engine {
             Outcome::Conditional { deny: fconds, allow: pconds }
         };
         let p1 = Phase1 { outcome, residuals: stats, tpe_decision: resp.decision(), resource_type: rt.to_string(),
-            action: a.verb.clone(), plain_residual_set_json_roundtrip: roundtrip_ok };
+            action: a.verb.clone(), plain_residual_set_json_roundtrip: roundtrip_ok, counts };
         let extra = f(&resp);
         Ok((p1, Some(extra)))
     }
