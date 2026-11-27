@@ -9,9 +9,11 @@ Verdict: **PASS**
 | `lake build` | ok |
 | Mirror modules (`lean/mirror`) | 21 (STATUS.md claims 23, see lean/mirror/ADAPTATIONS.md) |
 | Mirror theorems (`^theorem `) | 347 (STATUS.md: 347) |
-| Theorems incl. `@[..]`/private, mirror + K8sAuthz + CedarK8s | 366 |
+| Theorems incl. `@[..]`/private, mirror + K8sAuthz + CedarK8s | 493 |
 | Mirror axiom declarations | 2 (STATUS.md: 2) |
-| Own Lean modules (K8sAuthz, CedarK8s) | 2 |
+| Own Lean modules (K8sAuthz, CedarK8s) | 12 |
+| K8sAuthz theorems / examples | 128 / 3 |
+| K8sAuthz headline theorems audited (standard axioms only) | 32 |
 | `sorry` outside comments | 0 |
 | Rust tests passed / ignored / failed | 39 / 1 / 0 |
 
@@ -24,4 +26,36 @@ Verdict: **PASS**
 'webhook.P_49_legacy_shape' depends on axioms: [propext]
 'authorizer.P_27_counterexample' depends on axioms: [propext, Classical.choice, Quot.sound]
 'webhook.P_49_legacy_conditional_not_allow' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.refines_sem' depends on axioms: [propext]
+'K8sAuthz.guard_guarded' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.guard_inert' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.guard_sound' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.guard_lawful' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.chain_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.chain_lawful' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.chainN_lawful' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.enforcement_forward' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.enforcement_exact' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.chain_enforcement_exact' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.unaware_fail_closed' depends on axioms: [propext]
+'K8sAuthz.chain_sound_of_deny_faithful' does not depend on any axioms
+'K8sAuthz.fail_closed_to_noOp_is_fail_open' does not depend on any axioms
+'K8sAuthz.plan_lawful_guarded_clash' depends on axioms: [propext]
+'K8sAuthz.A0_not_both' depends on axioms: [propext]
+'K8sAuthz.L4_literal_false' depends on axioms: [propext]
+'K8sAuthz.G1_needs_good' depends on axioms: [propext]
+'K8sAuthz.chain_needs_valid_names' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.chain_needs_good_members' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.union_eval_unconditional_is_FD' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.A0_lawful' depends on axioms: [propext]
+'K8sAuthz.A2_lawful' depends on axioms: [propext]
+'K8sAuthz.A2_guarded' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.W2_consistent_nontrivial' depends on axioms: [propext]
+'K8sAuthz.chain_A2_lawful' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.chain_A2_enforcement' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.Bridge.pd_cua_toCAD' depends on axioms: [propext, Quot.sound]
+'K8sAuthz.Bridge.good_toCAD' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.Bridge.sem_toCAD' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.Bridge.pmap_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+'K8sAuthz.Bridge.peval_is_refinement' depends on axioms: [propext, Classical.choice, Quot.sound]
 ```

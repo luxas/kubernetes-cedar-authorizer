@@ -1,15 +1,8 @@
-/-!
-# K8sAuthz.Spec
-
-Placeholder for the strengthened authorizer interface (PLAN.md section 3.1, stage 2).
-Stage 0 only checks that the library builds.
--/
-
-namespace K8sAuthz
-
-/-- Placeholder so the module is non-empty. -/
-def specVersion : Nat := 0
-
-theorem specVersion_zero : specVersion = 0 := rfl
-
-end K8sAuthz
+import K8sAuthz.Spec.Core
+import K8sAuthz.Spec.Authorizer
+import K8sAuthz.Spec.Chain
+import K8sAuthz.Spec.ChainN
+import K8sAuthz.Spec.Enforcement
+import K8sAuthz.Spec.Negative
+import K8sAuthz.Spec.Examples
+import K8sAuthz.Spec.Hypotheses
