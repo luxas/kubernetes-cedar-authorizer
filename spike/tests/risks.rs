@@ -77,7 +77,7 @@ fn r8_converter_drops_undeclared_fields_and_omits_absent_ones() {
     assert!(c.stats.dropped.iter().any(|d| d == "request.data.a"));
     // a declared field of the wrong JSON type fails closed
     let mut bad = ar.clone();
-    bad["object"]["metadata"]["labels"]["owner"] = json!(7);
+    bad["object"]["metadata"]["labels"]["owner"] = json!(true);
     assert!(e.concrete(&bad, NameSource::Plan).is_err());
 }
 

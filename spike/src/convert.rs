@@ -20,6 +20,10 @@ pub enum Ty {
 pub struct ConvStats {
     /// JSON paths of object fields that the schema does not declare (dropped).
     pub dropped: Vec<String>,
+    /// paths where an integer was rendered as a string (int-or-string fields)
+    pub coerced: Vec<String>,
+    /// paths where a JSON object was turned into a set of {key,value} pairs (R-9 variant C)
+    pub map_pairs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -115,9 +119,25 @@ pub fn convert(ty: &Ty, v: &Value, path: &str, stats: &mut ConvStats) -> Result<
     if v.is_null() { return Ok(None); }
     let mism = |what: &str| ConvError(format!("{path}: expected {what}, got {v}"));
     match ty {
-        Ty::Str => v.as_str().map(|s| Some(json!(s))).ok_or_else(|| mism("string")),
+        Ty::Str => match (v.as_str(), v.as_i64()) {
+            (Some(s), _) => Ok(Some(json!(s))),
+            (None, Some(n)) => { stats.coerced.push(path.to_string()); Ok(Some(json!(n.to_string()))) }
+            _ => Err(mism("string")),
+        },
         Ty::Bool => v.as_bool().map(|s| Some(json!(s))).ok_or_else(|| mism("bool")),
         Ty::Long => match v.as_i64() { Some(n) => Ok(Some(json!(n))), None => Err(mism("integer")) },
+        Ty::Set(el) if v.is_object() && is_pair(el) => {
+            // map[string]string as a set of {key,value} records (R-9 variant C); sorted for determinism
+            let o = v.as_object().unwrap();
+            stats.map_pairs.push(path.to_string());
+            let mut out = Vec::new();
+            for (k, x) in o {
+                // a null map value (zero-valued time in fixtures) carries no information: skip the pair
+                let Some(val) = convert(&Ty::Str, x, &format!("{path}[{k}]"), stats)? else { stats.dropped.push(format!("{path}[{k}] (null)")); continue };
+                out.push(json!({"key": k, "value": val}));
+            }
+            Ok(Some(Value::Array(out)))
+        }
         Ty::Set(el) => {
             let a = v.as_array().ok_or_else(|| mism("array"))?;
             let mut out = Vec::new();
@@ -144,4 +164,8 @@ pub fn convert(ty: &Ty, v: &Value, path: &str, stats: &mut ConvStats) -> Result<
             Ok(Some(Value::Object(out)))
         }
     }
+}
+
+fn is_pair(t: &Ty) -> bool {
+    matches!(t, Ty::Rec { attrs, open: false } if attrs.len() == 2 && attrs.iter().any(|(k, _, _)| k == "key") && attrs.iter().any(|(k, _, _)| k == "value"))
 }

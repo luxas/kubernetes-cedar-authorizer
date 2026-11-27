@@ -5,3 +5,5 @@ pub mod model;
 pub mod shapes;
 pub mod audit;
 pub mod lint;
+pub mod openapi;
+pub mod r13;
